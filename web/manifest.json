@@ -1,12 +1,12 @@
 {
-    "name": "clarity_flutter",
-    "short_name": "clarity_flutter",
+    "name": "Clarity",
+    "short_name": "Clarity",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#ffffff",
+    "theme_color": "#34C759",
+    "description": "A minimal todo app. Your tasks, everywhere.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

@@ -5,6 +5,10 @@
 **/SupabaseConfig.plist
 **/GoogleService-Info.plist
 **/google-services.json
+# Android release signing (never commit; back up securely)
+**/*.jks
+**/*.keystore
+**/key.properties
 
 # Miscellaneous
 *.class
@@ -54,6 +58,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local release bundles (rebuild anytime; never commit binaries)
+/dist/
+
+# Gradle outputs
+/android/build/
+/android/app/build/
 
 # Widget Preview related
 .widget_preview/

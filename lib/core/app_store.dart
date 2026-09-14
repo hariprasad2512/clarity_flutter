@@ -10,6 +10,7 @@ import '../data/local_store.dart';
 import '../desktop/desktop.dart';
 import '../notifications/notification_service.dart';
 import '../sync/sync_engine.dart';
+import '../widget/widget_service.dart';
 
 // -- bootstrap overrides (set in main) ---------------------------------------
 
@@ -156,6 +157,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     state = [...state, task];
     await _notifications().schedule(task, snoozeMinutes: _snooze());
     _syncSoon();
+    await _refreshWidget();
     return task;
   }
 
@@ -173,6 +175,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
       await _notifications().schedule(task, snoozeMinutes: _snooze());
     }
     _syncSoon();
+    await _refreshWidget();
   }
 
   Future<void> deleteByIds(Iterable<String> ids) async {
@@ -183,6 +186,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
       await _notifications().cancel(id);
     }
     _syncSoon();
+    await _refreshWidget();
   }
 
   /// Privacy wipe on sign-out (Phase 3). Mirrors `AuthService.signOut`.
@@ -194,6 +198,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     for (final id in ids) {
       await _notifications().cancel(id);
     }
+    await _refreshWidget();
   }
 
   // -- notification-action handlers (main-isolate callbacks) -----------------
@@ -213,6 +218,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     ];
     await _notifications().cancel(id);
     _syncSoon();
+    await _refreshWidget();
     return true;
   }
 
@@ -230,6 +236,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     ];
     await _notifications().schedule(task, snoozeMinutes: minutes);
     _syncSoon();
+    await _refreshWidget();
     return true;
   }
 
@@ -248,6 +255,10 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
   /// Debounced cloud push. No-op when unconfigured (engine is null).
   /// Mirrors native `SyncEngine.pushSoon`.
   void _syncSoon() => ref.read(syncEngineProvider)?.pushSoon();
+
+  /// Re-renders the home-screen widget. No-op off Android / in tests.
+  Future<void> _refreshWidget() =>
+      ref.read(widgetServiceProvider).refresh(state);
 }
 
 final taskListProvider =

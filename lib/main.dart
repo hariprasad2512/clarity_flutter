@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
@@ -20,6 +23,7 @@ import 'notifications/notification_service.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
+import 'widget/widget_service.dart';
 
 /// Clarity for Flutter — Phase 4: previous phases + floating Quick Add,
 /// global hotkey, tray, launch-at-login.
@@ -67,6 +71,7 @@ Future<void> main(List<String> args) async {
       hotkeyServiceProvider.overrideWithValue(HotkeyService()),
       trayServiceProvider.overrideWithValue(TrayService()),
       quickAddHostProvider.overrideWithValue(QuickAddHost()),
+      widgetServiceProvider.overrideWithValue(WidgetService()),
     ],
   );
 
@@ -99,6 +104,9 @@ Future<void> main(List<String> args) async {
           container.read(taskListProvider),
           snoozeMinutes: container.read(settingsProvider).snoozeMinutes,
         );
+        await container
+            .read(widgetServiceProvider)
+            .refresh(container.read(taskListProvider));
       },
       readUserId: () => Supabase.instance.client.auth.currentUser?.id,
     );
@@ -113,6 +121,8 @@ Future<void> main(List<String> args) async {
           .overrideWithValue(container.read(trayServiceProvider)),
       quickAddHostProvider
           .overrideWithValue(container.read(quickAddHostProvider)),
+      widgetServiceProvider
+          .overrideWithValue(container.read(widgetServiceProvider)),
     ]);
     engine.status.listen((s) {
       container.read(syncStatusProvider.notifier).set(s);
@@ -168,6 +178,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   bool _wired = false;
   Timer? _syncTimer;
   StreamSubscription<AuthState>? _authSub;
+  StreamSubscription<Uri?>? _widgetSub;
 
   @override
   void initState() {
@@ -180,6 +191,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
     _authSub?.cancel();
+    _widgetSub?.cancel();
     super.dispose();
   }
 
@@ -209,7 +221,11 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
+      await ref
+          .read(widgetServiceProvider)
+          .refresh(ref.read(taskListProvider));
       await _initDesktop();
+      _listenWidgetTaps();
       if (!mounted || !AppConfig.isConfigured) return;
       final engine = ref.read(syncEngineProvider);
       if (engine == null) return;
@@ -262,6 +278,28 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       },
       quit: () => tray.quit(),
     );
+  }
+
+  /// Widget taps land here as deep links (`widgetClicked`): circle taps
+  /// toggle immediately in the main isolate (the widget never touches
+  /// Hive itself — single-isolate box locks). Plain opens need no action.
+  /// Android-only in Phase 5 (no iOS extension yet; no plugin elsewhere).
+  void _listenWidgetTaps() {
+    if (_widgetSub != null) return;
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      _widgetSub = HomeWidget.widgetClicked.listen(
+        (uri) async {
+          if (!mounted || uri == null) return;
+          final id = WidgetService.parseToggleId(uri);
+          if (id == null) return; // plain open (today) — nothing to apply
+          await ref.read(taskListProvider.notifier).completeById(id);
+        },
+        onError: (_) {},
+      );
+    } catch (_) {
+      // Best-effort (tests).
+    }
   }
 
   @override

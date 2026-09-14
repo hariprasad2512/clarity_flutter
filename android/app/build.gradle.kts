@@ -1,5 +1,9 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+    id("kotlin-android")
+    id("org.jetbrains.kotlin.plugin.compose")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -12,6 +16,26 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by flutter_local_notifications' core-library API use.
+        isCoreLibraryDesugaringEnabled = true
+    }
+
+    // Release signing from android/key.properties (gitignored, never
+    // committed). Absent file → debug keys so dev/CI keep building.
+    val keystoreProps = Properties().apply {
+        rootProject.file("key.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+    }
+    signingConfigs {
+        create("release") {
+            if (keystoreProps.containsKey("storeFile")) {
+                // storeFile is relative to this module (android/app), so
+                // ../clarity-release.jks resolves to android/clarity-release.jks.
+                storeFile = file(keystoreProps["storeFile"] as String)
+                storePassword = keystoreProps["storePassword"] as String
+                keyAlias = keystoreProps["keyAlias"] as String
+                keyPassword = keystoreProps["keyPassword"] as String
+            }
+        }
     }
 
     defaultConfig {
@@ -31,11 +55,23 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(
+                if (rootProject.file("key.properties").exists()) "release" else "debug"
+            )
         }
     }
+
+    buildFeatures {
+        // Phase 5 widget: Glance UI is Compose-based.
+        compose = true
+    }
+}
+
+dependencies {
+    // Phase 5 widget: adaptive Material3 Glance rendering.
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {
