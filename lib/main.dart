@@ -1,18 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/app_config.dart';
 import 'core/app_store.dart';
 import 'data/local_store.dart';
 import 'notifications/notification_service.dart';
+import 'sync/sync_engine.dart';
+import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
 
-/// Clarity for Flutter — Phase 2: local-first core + actionable local
-/// notifications.
+/// Clarity for Flutter — Phase 3: local-first core + actionable
+/// notifications + Supabase Auth (Google) + Postgres sync.
 ///
-/// Bootstrap: open Hive store + SharedPreferences, init notifications,
-/// then inject via ProviderScope overrides. Cloud (Supabase), hotkey and
-/// widgets arrive in Phases 3–5.
+/// Bootstrap: open Hive store + SharedPreferences, init notifications and
+/// (when configured) Supabase, build the sync engine bound to a live
+/// container, then inject everything via overrides. Hotkey and widgets
+/// arrive in Phases 4–5.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final store = await LocalStore.open();
@@ -24,13 +31,55 @@ Future<void> main() async {
         ? snoozeMinutes
         : 60,
   );
+
+  if (AppConfig.isConfigured) {
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      publishableKey: AppConfig.supabaseAnonKey,
+    );
+  }
+
+  final container = ProviderContainer(
+    overrides: [
+      localStoreProvider.overrideWithValue(store),
+      sharedPrefsProvider.overrideWithValue(prefs),
+      notificationServiceProvider.overrideWithValue(notifications),
+      // Pre-registered (null = local-only) so the engine can be swapped in
+      // below without changing the override count (Riverpod forbids that).
+      syncEngineProvider.overrideWithValue(null),
+    ],
+  );
+
+  if (AppConfig.isConfigured) {
+    final engine = SyncEngine(
+      remote: SupabaseTaskRemote(),
+      readLocal: () async => store.all,
+      writeLocal: (tasks) async {
+        for (final t in tasks) {
+          await store.put(t);
+        }
+        container.read(taskListProvider.notifier).refreshFromStore();
+        await notifications.rescheduleAll(
+          container.read(taskListProvider),
+          snoozeMinutes: container.read(settingsProvider).snoozeMinutes,
+        );
+      },
+      readUserId: () => Supabase.instance.client.auth.currentUser?.id,
+    );
+    container.updateOverrides([
+      localStoreProvider.overrideWithValue(store),
+      sharedPrefsProvider.overrideWithValue(prefs),
+      notificationServiceProvider.overrideWithValue(notifications),
+      syncEngineProvider.overrideWithValue(engine),
+    ]);
+    engine.status.listen((s) {
+      container.read(syncStatusProvider.notifier).set(s);
+    });
+  }
+
   runApp(
-    ProviderScope(
-      overrides: [
-        localStoreProvider.overrideWithValue(store),
-        sharedPrefsProvider.overrideWithValue(prefs),
-        notificationServiceProvider.overrideWithValue(notifications),
-      ],
+    UncontrolledProviderScope(
+      container: container,
       child: const ClarityApp(),
     ),
   );
@@ -61,9 +110,9 @@ class ClarityApp extends StatelessWidget {
 }
 
 /// One-time startup wiring that needs a live container: notification action
-/// callbacks, permission request, and alarm reconcile. Mirrors the native
-/// `ClarityApp.init` (delegate install) + `ContentView.onAppear`
-/// (`NotificationManager.requestPermission`) split.
+/// callbacks, permission request, alarm reconcile, auth-state reactions,
+/// foreground-resume + 60s sync triggers. Mirrors native `ClarityApp.init`
+/// + `ContentView.onAppear` + `SyncEngine` timers.
 class _Bootstrap extends ConsumerStatefulWidget {
   const _Bootstrap({required this.child});
   final Widget child;
@@ -72,8 +121,33 @@ class _Bootstrap extends ConsumerStatefulWidget {
   ConsumerState<_Bootstrap> createState() => _BootstrapState();
 }
 
-class _BootstrapState extends ConsumerState<_Bootstrap> {
+class _BootstrapState extends ConsumerState<_Bootstrap>
+    with WidgetsBindingObserver {
   bool _wired = false;
+  Timer? _syncTimer;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _syncTimer?.cancel();
+    _authSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Foreground pull (native: onReceive foreground notification).
+    if (state == AppLifecycleState.resumed) {
+      ref.read(syncEngineProvider)?.syncNow();
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -86,7 +160,6 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
     notifications.onSnooze = (id) => ref
         .read(taskListProvider.notifier)
         .snoozeById(id, ref.read(settingsProvider).snoozeMinutes);
-    // Best-effort, never blocks first frame.
     Future(() async {
       await notifications.requestPermission();
       if (!mounted) return;
@@ -94,6 +167,29 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
+      if (!mounted || !AppConfig.isConfigured) return;
+      final engine = ref.read(syncEngineProvider);
+      if (engine == null) return;
+      // Signed-in launch: initial pull. Signed-out launch: stay local.
+      if (Supabase.instance.client.auth.currentSession != null) {
+        await engine.syncNow();
+      }
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
+        (data) async {
+          if (!mounted) return;
+          if (data.session != null) {
+            await ref.read(settingsProvider.notifier).setOfflineMode(false);
+            await engine.syncNow();
+          } else {
+            // Remote expiry/sign-out elsewhere: surface the gate, keep data.
+            ref.read(syncStatusProvider.notifier).set(SyncStatus.localOnly);
+          }
+        },
+      );
+      // Periodic pull (native: 60s timer).
+      _syncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+        engine.syncNow();
+      });
     });
   }
 

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/auth_service.dart';
+import '../core/app_config.dart';
 import '../core/app_store.dart';
 import '../core/task_model.dart';
+import '../sync/sync_engine.dart';
 
 /// Slim Todoist-style sidebar: Quick Add entry, Today/Inbox/Done rows with
 /// badges, account + sync footer. Mirrors native `SidebarView`.
@@ -63,62 +66,7 @@ class Sidebar extends ConsumerWidget {
             ),
           const Spacer(),
           const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Colors.green.withValues(alpha: 0.2),
-                      child: const Text(
-                        '○',
-                        style: TextStyle(color: Colors.green, fontSize: 12),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Local only',
-                              style: TextStyle(fontWeight: FontWeight.w500)),
-                          Row(
-                            children: [
-                              Container(
-                                width: 7,
-                                height: 7,
-                                decoration: const BoxDecoration(
-                                  color: Colors.grey,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Local only',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.outline,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Cloud sync not set up — arrives in Phase 3',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _AccountFooter(onNavigate: onNavigate),
         ],
       ),
     );
@@ -133,6 +81,115 @@ class Sidebar extends ConsumerWidget {
       case TaskFilter.done:
         return null;
     }
+  }
+}
+
+/// Account row + sync status. Mirrors native `SidebarView` footer
+/// (avatar, sync dot, launch-at-login lives in Settings on Flutter).
+class _AccountFooter extends ConsumerWidget {
+  const _AccountFooter({this.onNavigate});
+  final VoidCallback? onNavigate;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final user = AppConfig.isConfigured
+        ? ref.watch(authUserProvider).maybeWhen(
+              data: (u) => u,
+              orElse: () => null,
+            )
+        : null;
+    final status = ref.watch(syncStatusProvider);
+
+    final (dotColor, label) = switch (status) {
+      SyncStatus.synced => (Colors.green, 'Synced'),
+      SyncStatus.syncing => (Colors.orange, 'Syncing…'),
+      SyncStatus.localOnly => (Colors.grey, 'Local only'),
+      SyncStatus.error => (Colors.red, 'Sync error'),
+    };
+    final headline = user?.email ?? 'Local only';
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: Colors.green.withValues(alpha: 0.2),
+                child: Text(
+                  headline.isEmpty ? '○' : headline[0].toUpperCase(),
+                  style: const TextStyle(
+                      color: Colors.green, fontSize: 12),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(headline,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w500)),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: dotColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          label,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (user != null)
+            TextButton(
+              onPressed: () async {
+                await ref.read(authServiceProvider).signOut(ref);
+                onNavigate?.call();
+              },
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
+              child: const Text('Sign out'),
+            )
+          else if (AppConfig.isConfigured)
+            TextButton(
+              onPressed: () async {
+                // Leave offline mode → AppShell shows the sign-in gate.
+                await ref
+                    .read(settingsProvider.notifier)
+                    .setOfflineMode(false);
+                onNavigate?.call();
+              },
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
+              child: const Text('Sign in with Google'),
+            )
+          else
+            Text(
+              'Cloud sync not set up in this build',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

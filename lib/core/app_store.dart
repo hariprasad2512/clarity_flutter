@@ -5,6 +5,7 @@ import '../core/date_parser.dart';
 import '../core/task_model.dart';
 import '../data/local_store.dart';
 import '../notifications/notification_service.dart';
+import '../sync/sync_engine.dart';
 
 // -- bootstrap overrides (set in main) ---------------------------------------
 
@@ -51,7 +52,7 @@ class SettingsNotifier extends Notifier<SettingsState> {
     return SettingsState(
       snoozeMinutes: prefs.getInt(snoozeKey).let((v) =>
           (v != null && v > 0) ? v : 60),
-      offlineMode: prefs.getBool(offlineKey) ?? true,
+      offlineMode: prefs.getBool(offlineKey) ?? false,
     );
   }
 
@@ -113,6 +114,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     await ref.read(localStoreProvider).put(task);
     state = [...state, task];
     await _notifications().schedule(task, snoozeMinutes: _snooze());
+    _syncSoon();
     return task;
   }
 
@@ -129,6 +131,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     } else {
       await _notifications().schedule(task, snoozeMinutes: _snooze());
     }
+    _syncSoon();
   }
 
   Future<void> deleteByIds(Iterable<String> ids) async {
@@ -138,6 +141,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     for (final id in gone) {
       await _notifications().cancel(id);
     }
+    _syncSoon();
   }
 
   /// Privacy wipe on sign-out (Phase 3). Mirrors `AuthService.signOut`.
@@ -167,6 +171,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
         if (t.id == id) task else t,
     ];
     await _notifications().cancel(id);
+    _syncSoon();
     return true;
   }
 
@@ -183,6 +188,7 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
         if (t.id == id) task else t,
     ];
     await _notifications().schedule(task, snoozeMinutes: minutes);
+    _syncSoon();
     return true;
   }
 
@@ -197,6 +203,10 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
       ref.read(notificationServiceProvider);
 
   int _snooze() => ref.read(settingsProvider).snoozeMinutes;
+
+  /// Debounced cloud push. No-op when unconfigured (engine is null).
+  /// Mirrors native `SyncEngine.pushSoon`.
+  void _syncSoon() => ref.read(syncEngineProvider)?.pushSoon();
 }
 
 final taskListProvider =

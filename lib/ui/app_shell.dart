@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/auth_service.dart';
+import '../core/app_config.dart';
 import '../core/app_store.dart';
 import 'auth_view.dart';
 import 'quick_add_dialog.dart';
@@ -8,20 +10,21 @@ import 'settings_view.dart';
 import 'sidebar.dart';
 import 'task_list.dart';
 
-/// Shell: login gate when cloud is configured + signed out (Phase 3),
-/// otherwise the sidebar + list workspace. Mirrors native `ContentView`.
-///
-/// Phase 1: Supabase is never configured, so the gate shows until the
-/// user taps "Continue offline" (persisted via [SettingsNotifier]).
+/// Shell: sign-in gate when cloud is configured + signed out + not
+/// explicitly offline, otherwise the sidebar + list workspace.
+/// Mirrors native `ContentView` (login gate → workspace).
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
-
-  static const _isCloudConfigured = false; // Phase 3 flips this on
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
-    if (_isCloudConfigured && !settings.offlineMode) {
+    final signedIn = AppConfig.isConfigured &&
+        ref.watch(authUserProvider).maybeWhen(
+              data: (u) => u != null,
+              orElse: () => false,
+            );
+    if (AppConfig.isConfigured && !signedIn && !settings.offlineMode) {
       return const Scaffold(body: AuthView());
     }
     return LayoutBuilder(
