@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/date_parser.dart';
 import '../core/task_model.dart';
 import '../data/local_store.dart';
+import '../desktop/desktop.dart';
 import '../notifications/notification_service.dart';
 import '../sync/sync_engine.dart';
 
@@ -28,14 +32,26 @@ final notificationServiceProvider = Provider<NotificationService>(
 // -- settings ----------------------------------------------------------------
 
 class SettingsState {
-  const SettingsState({required this.snoozeMinutes, required this.offlineMode});
+  const SettingsState({
+    required this.snoozeMinutes,
+    required this.offlineMode,
+    required this.launchAtLogin,
+  });
   final int snoozeMinutes;
   final bool offlineMode;
 
-  SettingsState copyWith({int? snoozeMinutes, bool? offlineMode}) =>
+  /// Desktop-only; always false on mobile/web. Default off (opt-in).
+  final bool launchAtLogin;
+
+  SettingsState copyWith({
+    int? snoozeMinutes,
+    bool? offlineMode,
+    bool? launchAtLogin,
+  }) =>
       SettingsState(
         snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
         offlineMode: offlineMode ?? this.offlineMode,
+        launchAtLogin: launchAtLogin ?? this.launchAtLogin,
       );
 }
 
@@ -44,6 +60,7 @@ class SettingsState {
 class SettingsNotifier extends Notifier<SettingsState> {
   static const snoozeKey = 'snoozeMinutes';
   static const offlineKey = 'offlineMode';
+  static const launchKey = 'launchAtLogin';
   static const snoozeOptions = [15, 30, 60, 120, 180];
 
   @override
@@ -53,6 +70,8 @@ class SettingsNotifier extends Notifier<SettingsState> {
       snoozeMinutes: prefs.getInt(snoozeKey).let((v) =>
           (v != null && v > 0) ? v : 60),
       offlineMode: prefs.getBool(offlineKey) ?? false,
+      launchAtLogin: isDesktopApp &&
+          (prefs.getBool(launchKey) ?? false),
     );
   }
 
@@ -66,6 +85,28 @@ class SettingsNotifier extends Notifier<SettingsState> {
   Future<void> setOfflineMode(bool value) async {
     state = state.copyWith(offlineMode: value);
     await ref.read(sharedPrefsProvider).setBool(offlineKey, value);
+  }
+
+  /// Opt-in launch at login (desktop only, default off). Applies via the
+  /// OS startup entry immediately; the choice persists across launches.
+  /// Mirrors native `LaunchAtLogin`.
+  Future<void> setLaunchAtLogin(bool value) async {
+    if (!isDesktopApp) return;
+    state = state.copyWith(launchAtLogin: value);
+    await ref.read(sharedPrefsProvider).setBool(launchKey, value);
+    try {
+      launchAtStartup.setup(
+        appName: 'Clarity',
+        appPath: Platform.resolvedExecutable,
+      );
+      if (value) {
+        await launchAtStartup.enable();
+      } else {
+        await launchAtStartup.disable();
+      }
+    } catch (_) {
+      // Best-effort: the preference stays, the OS entry may not.
+    }
   }
 }
 

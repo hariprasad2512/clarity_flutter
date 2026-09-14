@@ -4,15 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'auth/auth_service.dart';
 import 'core/app_config.dart';
 import 'core/app_store.dart';
 import 'data/local_store.dart';
+import 'desktop/desktop.dart';
+import 'desktop/hotkey_service.dart';
+import 'desktop/tray_service.dart';
 import 'notifications/notification_service.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
+import 'ui/quick_add_dialog.dart';
 
 /// Clarity for Flutter — Phase 3: local-first core + actionable
 /// notifications + Supabase Auth (Google) + Postgres sync.
@@ -23,6 +28,10 @@ import 'ui/app_shell.dart';
 /// arrive in Phases 4–5.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (isDesktopApp) {
+    // Window controls (show/focus/hide) for tray + hotkey summoning.
+    await windowManager.ensureInitialized();
+  }
   final store = await LocalStore.open();
   final prefs = await SharedPreferences.getInstance();
   final notifications = NotificationService();
@@ -48,6 +57,8 @@ Future<void> main() async {
       // Pre-registered (null = local-only) so the engine can be swapped in
       // below without changing the override count (Riverpod forbids that).
       syncEngineProvider.overrideWithValue(null),
+      hotkeyServiceProvider.overrideWithValue(HotkeyService()),
+      trayServiceProvider.overrideWithValue(TrayService()),
     ],
   );
 
@@ -72,6 +83,10 @@ Future<void> main() async {
       sharedPrefsProvider.overrideWithValue(prefs),
       notificationServiceProvider.overrideWithValue(notifications),
       syncEngineProvider.overrideWithValue(engine),
+      hotkeyServiceProvider
+          .overrideWithValue(container.read(hotkeyServiceProvider)),
+      trayServiceProvider
+          .overrideWithValue(container.read(trayServiceProvider)),
     ]);
     engine.status.listen((s) {
       container.read(syncStatusProvider.notifier).set(s);
@@ -168,6 +183,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
+      await _initDesktop();
       if (!mounted || !AppConfig.isConfigured) return;
       final engine = ref.read(syncEngineProvider);
       if (engine == null) return;
@@ -200,6 +216,41 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         engine.syncNow();
       });
     });
+  }
+
+  /// Desktop integrations: global hotkey + tray (hide-on-close, Quit).
+  /// No-ops on mobile/web/tests via the services' own guards.
+  Future<void> _initDesktop() async {
+    final tray = ref.read(trayServiceProvider);
+    await ref.read(hotkeyServiceProvider).init(_summonQuickAdd);
+    await tray.init(
+      quickAdd: _summonQuickAdd,
+      show: () async {
+        try {
+          await windowManager.show();
+          await windowManager.focus();
+        } catch (_) {
+          // Best-effort.
+        }
+      },
+      quit: () => tray.quit(),
+    );
+  }
+
+  /// Brings the window forward and opens Quick Add — the shared target of
+  /// the global hotkey and the tray menu (native QuickAddPanel behavior).
+  Future<void> _summonQuickAdd() async {
+    if (!mounted) return;
+    if (isDesktopApp) {
+      try {
+        await windowManager.show();
+        await windowManager.focus();
+      } catch (_) {
+        // Best-effort: still open the dialog wherever we are.
+      }
+    }
+    if (!mounted) return;
+    await showQuickAdd(context);
   }
 
   @override

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/app_store.dart';
+import '../desktop/desktop.dart';
+import '../desktop/hotkey_service.dart';
 
 /// Native Settings window equivalent (⌘,). Home of the "Remind me later"
 /// delay. Mirrors native `SettingsView`.
@@ -55,11 +57,39 @@ class SettingsView extends ConsumerWidget {
             Text('Capture', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
-              'Press ⌘⇧T (desktop, Phase 4) or the Quick Add button anywhere to capture. Actionable notifications arrive in Phase 2.',
+              isDesktopApp
+                  ? 'Press ${HotkeyService.label.replaceFirst('Quick Add  ', '')} anywhere to capture, or use the Quick Add button and the menu-bar icon.'
+                  : 'Use the Quick Add button anywhere to capture.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.outline,
                   ),
             ),
+            if (isDesktopApp) ...[
+              const SizedBox(height: 16),
+              Text('System',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Launch at login'),
+                subtitle: Text(
+                  'Start Clarity when you sign in.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                ),
+                value: settings.launchAtLogin,
+                onChanged: (v) => ref
+                    .read(settingsProvider.notifier)
+                    .setLaunchAtLogin(v),
+              ),
+              Text(
+                'Closing the window hides Clarity to the menu bar — Quit from the menu-bar icon to exit.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+              ),
+            ],
           ],
         ),
       ),

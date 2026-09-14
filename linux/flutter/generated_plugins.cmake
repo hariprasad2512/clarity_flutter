@@ -5,7 +5,11 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_timezone
   gtk
+  hotkey_manager_linux
+  screen_retriever_linux
+  tray_manager
   url_launcher_linux
+  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

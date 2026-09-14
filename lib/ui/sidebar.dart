@@ -5,6 +5,7 @@ import '../auth/auth_service.dart';
 import '../core/app_config.dart';
 import '../core/app_store.dart';
 import '../core/task_model.dart';
+import '../desktop/hotkey_service.dart';
 import '../sync/sync_engine.dart';
 
 /// Slim Todoist-style sidebar: Quick Add entry, Today/Inbox/Done rows with
@@ -35,7 +36,7 @@ class Sidebar extends ConsumerWidget {
             child: FilledButton.icon(
               onPressed: onQuickAdd,
               icon: const Icon(Icons.bolt, size: 18),
-              label: const Text('Quick Add  ⌘⇧T'),
+              label: Text(HotkeyService.label),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
