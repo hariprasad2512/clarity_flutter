@@ -63,7 +63,7 @@ class ClarityWidget : GlanceAppWidget() {
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(GlanceTheme.colors.surface)
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .clickable(onClick = actionStartActivity<MainActivity>(
                     context, Uri.parse("com.harry.Clarity://today"))),
         ) {
@@ -75,7 +75,7 @@ class ClarityWidget : GlanceAppWidget() {
                     "Today",
                     style = TextStyle(
                         fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         color = GlanceTheme.colors.onSurface,
                     ),
                 )
@@ -83,19 +83,19 @@ class ClarityWidget : GlanceAppWidget() {
                 Text(
                     "$count",
                     style = TextStyle(
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         color = GlanceTheme.colors.primary,
                     ),
                 )
             }
             if (tasks.length() == 0) {
                 Text(
-                    "Nothing due. Enjoy the calm.",
+                    "Nothing due.",
                     style = TextStyle(
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = GlanceTheme.colors.onSurfaceVariant,
                     ),
-                    modifier = GlanceModifier.padding(top = 8.dp),
+                    modifier = GlanceModifier.padding(top = 4.dp),
                 )
             }
             for (i in 0 until tasks.length()) {
@@ -107,17 +107,17 @@ class ClarityWidget : GlanceAppWidget() {
                 Row(
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 3.dp),
                     verticalAlignment = Alignment.Vertical.CenterVertically,
                 ) {
                     Text(
                         "○",
                         style = TextStyle(
-                            fontSize = 20.sp,
+                            fontSize = 18.sp,
                             color = GlanceTheme.colors.primary,
                         ),
                         modifier = GlanceModifier
-                            .padding(end = 10.dp)
+                            .padding(end = 8.dp)
                             .clickable(onClick = actionStartActivity<MainActivity>(
                                 context,
                                 Uri.parse("com.harry.Clarity://widget-toggle?id=$id"),
@@ -128,7 +128,7 @@ class ClarityWidget : GlanceAppWidget() {
                             title,
                             maxLines = 1,
                             style = TextStyle(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 color = GlanceTheme.colors.onSurface,
                             ),
                         )
@@ -137,7 +137,7 @@ class ClarityWidget : GlanceAppWidget() {
                                 due,
                                 maxLines = 1,
                                 style = TextStyle(
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = GlanceTheme.colors.onSurfaceVariant,
                                 ),
                             )

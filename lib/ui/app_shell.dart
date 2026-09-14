@@ -7,9 +7,9 @@ import '../core/app_store.dart';
 import '../desktop/desktop.dart';
 import '../desktop/quick_add_host.dart';
 import 'auth_view.dart';
-import 'quick_add_dialog.dart';
 import 'settings_view.dart';
 import 'sidebar.dart';
+import 'task_composer_sheet.dart';
 import 'task_list.dart';
 
 /// Shell: sign-in gate when cloud is configured + signed out + not
@@ -32,13 +32,12 @@ class AppShell extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Desktop summons the floating Spotlight-style panel; mobile/web
-        // (no sub-windows) keep the in-window dialog. One Quick Add
-        // everywhere, platform-appropriate presentation.
+        // open the bottom-sheet composer (Google-Tasks style).
         void quickAdd() {
           if (isDesktopApp) {
             ref.read(quickAddHostProvider).summon();
           } else {
-            showQuickAdd(context);
+            showTaskComposer(context);
           }
         }
 
@@ -108,8 +107,9 @@ class _NarrowLayout extends StatelessWidget {
         onPressed: onQuickAdd,
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
-        tooltip: 'Quick Add',
-        child: const Icon(Icons.bolt),
+        tooltip: 'New task',
+        // Desktop keeps the bolt (Quick Add); mobile gets the + composer.
+        child: Icon(isDesktopApp ? Icons.bolt : Icons.add),
       ),
     );
   }

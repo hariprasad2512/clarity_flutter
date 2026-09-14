@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_store.dart';
 import '../core/date_parser.dart';
 import '../core/task_model.dart';
+import '../desktop/desktop.dart';
+import 'schedule_sheet.dart';
 
 /// Detail column: capture bar, search, task list. Mirrors native
 /// `TaskListView` (header + count, capture bar with calendar/clock chips,
@@ -47,16 +49,10 @@ class _TaskListState extends ConsumerState<TaskList> {
   Future<void> _openSchedule() async {
     final now = DateTime.now();
     DateTime draft = _manualDate ?? _effectiveDate ?? now;
-    final picked = await showModalBottomSheet<DateTime?>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => _ScheduleSheet(initial: draft),
-    );
-    // null return = dismissed; _ScheduleSheet returns _Sentinel.clear for Clear
-    if (!mounted) return;
-    if (picked == null) return; // dismissed
+    final picked = await showScheduleSheet(context, draft);
+    if (!mounted || picked == null) return; // dismissed
     setState(() {
-      _manualDate = picked.year == 1 ? null : picked; // year 1 = Clear sentinel
+      _manualDate = picked is SchedulePicked ? picked.date : null;
     });
   }
 
@@ -95,26 +91,30 @@ class _TaskListState extends ConsumerState<TaskList> {
                 ),
               ),
               const Spacer(),
-              SizedBox(
-                width: 220,
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: const InputDecoration(
-                    hintText: 'Search',
-                    prefixIcon: Icon(Icons.search, size: 18),
-                    border: OutlineInputBorder(),
-                    isDense: true,
+              // Flexible (not fixed) so narrow phones never overflow.
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Search',
+                      prefixIcon: Icon(Icons.search, size: 18),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: (q) =>
+                        ref.read(searchProvider.notifier).set(q),
                   ),
-                  onChanged: (q) =>
-                      ref.read(searchProvider.notifier).set(q),
                 ),
               ),
             ],
           ),
         ),
-        // Capture bar
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+        // Capture bar (desktop only — mobile creates via the + composer).
+        if (isDesktopApp)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
           child: Container(
             padding:
                 const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -187,28 +187,18 @@ class _TaskListState extends ConsumerState<TaskList> {
                       _TaskRow(task: tasks[i]),
                 ),
         ),
-        // Store footer
-        Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            children: [
-              Text(
-                'Local store · Hive',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
+        // Store footer (desktop only; mobile stays uncluttered).
+        if (isDesktopApp)
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Text(
+              'Local store · Hive',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
               ),
-              const Spacer(),
-              Text(
-                'Widget arrives in Phase 5',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -275,6 +265,8 @@ class _TaskRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Mobile gets roomier touch targets; desktop keeps dense rows.
+    final roomy = !isDesktopApp;
     return Dismissible(
       key: ValueKey(task.id),
       direction: DismissDirection.endToStart,
@@ -289,20 +281,22 @@ class _TaskRow extends ConsumerWidget {
       child: InkWell(
         onTap: () => ref.read(taskListProvider.notifier).toggle(task),
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          padding: EdgeInsets.symmetric(
+              horizontal: 20, vertical: roomy ? 14 : 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                task.isCompleted
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
-                color:
-                    task.isCompleted ? Colors.grey : Colors.green,
-                size: 22,
+              Padding(
+                padding: EdgeInsets.only(top: roomy ? 2 : 0),
+                child: Icon(
+                  task.isCompleted
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: task.isCompleted ? Colors.grey : Colors.green,
+                  size: roomy ? 28 : 22,
+                ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: roomy ? 14 : 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,23 +310,23 @@ class _TaskRow extends ConsumerWidget {
                         color: task.isCompleted
                             ? Colors.grey
                             : null,
-                        fontSize: 15,
+                        fontSize: roomy ? 17 : 15,
                       ),
                     ),
                     if (task.dueDate != null) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Row(
                         children: [
                           Icon(
                             Icons.calendar_today,
-                            size: 12,
+                            size: roomy ? 14 : 12,
                             color: _dueColor(context, task.dueDate!),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             DateParser.displayString(task.dueDate!),
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: roomy ? 13 : 12,
                               color:
                                   _dueColor(context, task.dueDate!),
                             ),
@@ -383,130 +377,6 @@ class _EmptyState extends StatelessWidget {
                   color: Theme.of(context).colorScheme.outline)),
         ],
       ),
-    );
-  }
-}
-
-/// Bottom-sheet schedule picker: Today/Tomorrow/Weekend presets (day is
-/// set, draft time-of-day kept — like native `applyPreset`), month
-/// calendar, time row, Clear/Done. Returns picked date, year-1 sentinel
-/// for Clear, null when dismissed.
-class _ScheduleSheet extends StatefulWidget {
-  const _ScheduleSheet({required this.initial});
-  final DateTime initial;
-
-  @override
-  State<_ScheduleSheet> createState() => _ScheduleSheetState();
-}
-
-class _ScheduleSheetState extends State<_ScheduleSheet> {
-  late DateTime _draft;
-
-  @override
-  void initState() {
-    super.initState();
-    _draft = widget.initial;
-  }
-
-  void _applyPreset(int dayOffset) {
-    final now = DateTime.now();
-    final day = DateTime(now.year, now.month, now.day)
-        .add(Duration(days: dayOffset));
-    setState(() {
-      _draft = DateTime(
-          day.year, day.month, day.day, _draft.hour, _draft.minute);
-    });
-  }
-
-  void _applyWeekend() {
-    final weekday = DateTime.now().weekday; // Mon=1..Sun=7
-    _applyPreset((6 - weekday + 7) % 7);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _PresetChip(label: 'Today', onTap: () => _applyPreset(0)),
-                _PresetChip(
-                    label: 'Tomorrow', onTap: () => _applyPreset(1)),
-                _PresetChip(label: 'Weekend', onTap: _applyWeekend),
-              ],
-            ),
-            CalendarDatePicker(
-              initialDate: _draft,
-              firstDate: DateTime(2020),
-              lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
-              onDateChanged: (d) => setState(() {
-                _draft = DateTime(
-                    d.year, d.month, d.day, _draft.hour, _draft.minute);
-              }),
-            ),
-            Row(
-              children: [
-                const Icon(Icons.access_time,
-                    color: Colors.green, size: 20),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () async {
-                    final t = await showTimePicker(
-                      context: context,
-                      initialTime: TimeOfDay.fromDateTime(_draft),
-                    );
-                    if (t != null) {
-                      setState(() {
-                        _draft = DateTime(_draft.year, _draft.month,
-                            _draft.day, t.hour, t.minute);
-                      });
-                    }
-                  },
-                  child: Text(DateParser.timeLabel(_draft)),
-                ),
-                const Spacer(),
-                TextButton(
-                  // Clear sentinel: year 1 (handled by caller).
-                  onPressed: () => Navigator.of(context)
-                      .pop(DateTime(1, 1, 1)),
-                  child: const Text('Clear'),
-                ),
-                FilledButton(
-                  onPressed: () =>
-                      Navigator.of(context).pop(_draft),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Done'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PresetChip extends StatelessWidget {
-  const _PresetChip({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      label: Text(label),
-      onPressed: onTap,
-      backgroundColor: Colors.green.withValues(alpha: 0.12),
-      labelStyle: const TextStyle(color: Colors.green),
-      side: BorderSide.none,
     );
   }
 }

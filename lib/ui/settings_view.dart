@@ -59,7 +59,7 @@ class SettingsView extends ConsumerWidget {
             Text(
               isDesktopApp
                   ? 'Press ${HotkeyService.label.replaceFirst('Quick Add  ', '')} anywhere to capture, or use the Quick Add button and the menu-bar icon.'
-                  : 'Use the Quick Add button anywhere to capture.',
+                  : 'Tap + to capture a task. Title, date and time live in the composer.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.outline,
                   ),

@@ -11,6 +11,9 @@ import 'package:clarity_flutter/main.dart';
 // Inside testWidgets, FakeAsync is active: Hive's disk-flush futures only
 // complete inside runAsync, so the test waits on notifier state there and
 // pumps afterwards.
+//
+// NOTE: tests run with FLUTTER_TEST set, so `isDesktopApp` is false and the
+// mobile UI is under test: + FAB → bottom-sheet composer (no capture bar).
 void main() {
   late LocalStore store;
   late SharedPreferences prefs;
@@ -25,8 +28,15 @@ void main() {
     await store.closeAndDelete();
   });
 
-  testWidgets('offline smoke: sidebar filters render, capture adds a task',
+  testWidgets('offline smoke: sidebar filters render, FAB composer adds',
       (tester) async {
+    // Phone-sized surface → narrow layout with the + FAB.
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     final container = ProviderContainer(
       overrides: [
         localStoreProvider.overrideWithValue(store),
@@ -45,16 +55,28 @@ void main() {
 
     // Workspace renders (offlineMode defaults true -> no auth gate).
     expect(find.text('Today'), findsWidgets);
+
+    // Drawer holds the filter list on narrow screens.
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
     expect(find.text('Inbox'), findsOneWidget);
     expect(find.text('Done'), findsOneWidget);
+    await tester.tapAt(const Offset(350, 450)); // scrim dismisses drawer
+    await tester.pumpAndSettle();
 
-    // Capture a task through the capture bar ("today" so it lands in the
-    // default Today tab).
+    // Mobile flow: + FAB opens the bottom-sheet composer.
+    await tester.tap(find.widgetWithIcon(FloatingActionButton, Icons.add));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'New task'), findsOneWidget);
+
+    // "today" puts it in the default Today tab. Save via the button
+    // (keyboard actions are covered by the composer unit path).
     await tester.enterText(
-      find.widgetWithText(TextField, 'Add a task — try "Finish Report"'),
+      find.widgetWithText(TextField, 'New task'),
       'Smoke task today',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, 'Save'));
     // Let Hive's disk flush + the notifier continuation run in real time.
     await tester.runAsync(() async {
       for (var i = 0;
