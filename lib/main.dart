@@ -100,10 +100,11 @@ Future<void> main(List<String> args) async {
       remote: SupabaseTaskRemote(),
       readLocal: () async => store.all,
       writeLocal: (tasks) async {
+        final notifier = container.read(taskListProvider.notifier);
         for (final t in tasks) {
           await store.put(t);
         }
-        container.read(taskListProvider.notifier).refreshFromStore();
+        notifier.refreshFromStore();
         await notifications.rescheduleAll(
           container.read(taskListProvider),
           snoozeMinutes: container.read(settingsProvider).snoozeMinutes,
@@ -111,6 +112,12 @@ Future<void> main(List<String> args) async {
         await container
             .read(widgetServiceProvider)
             .refresh(container.read(taskListProvider));
+        await reconcileWidgetStrikes(
+          notifier.completeById,
+          after: () => container
+              .read(widgetServiceProvider)
+              .refresh(container.read(taskListProvider)),
+        );
       },
       readUserId: () => Supabase.instance.client.auth.currentUser?.id,
     );
@@ -201,9 +208,11 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Foreground pull (native: onReceive foreground notification).
+    // Foreground pull (native: onReceive foreground notification) plus
+    // widget outbox reconcile.
     if (state == AppLifecycleState.resumed) {
       ref.read(syncEngineProvider)?.syncNow();
+      reconcileWidgetStrikesRef(ref);
     }
   }
 
@@ -228,6 +237,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       await ref
           .read(widgetServiceProvider)
           .refresh(ref.read(taskListProvider));
+      await reconcileWidgetStrikesRef(ref);
       await _initDesktop();
       _listenWidgetTaps();
       if (!mounted || !AppConfig.isConfigured) return;

@@ -21,8 +21,13 @@ import '../core/task_model.dart';
 ///   circle → toggle, row/background → open. The widget never touches
 ///   Hive directly (single-isolate box locks) — it renders prefs JSON.
 class WidgetService {
-  /// Fully-qualified Glance receiver (must match AndroidManifest).
-  static const androidReceiver = 'com.harry.Clarity.ClarityWidgetReceiver';
+  /// Fully-qualified Glance receivers (must match AndroidManifest).
+  /// All three sizes update together — one data write, three re-renders.
+  static const androidReceivers = [
+    'com.harry.Clarity.ClarityWidgetSmallReceiver',
+    'com.harry.Clarity.ClarityWidgetMediumReceiver',
+    'com.harry.Clarity.ClarityWidgetLargeReceiver',
+  ];
 
   /// Max rows, mirroring the native widget's cap.
   static const maxRows = 6;
@@ -37,7 +42,8 @@ class WidgetService {
   /// Background-only switch URI (handled without opening the app).
   static const String switchUri = 'clarity-widget://switch-list';
 
-  /// Pure payload builder (unit-tested).
+  /// Pure payload builder (unit-tested). Open and struck rows ship as
+  /// separate lists so each widget size can reserve struck space first.
   static Map<String, Object> payloadFor(List<TodoTask> tasks) {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
@@ -63,31 +69,25 @@ class WidgetService {
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
-    List<Map<String, String>> capped(
-      List<TodoTask> open,
-      List<TodoTask> done,
-    ) {
-      // Struck rows reserve space first: a fresh tap must stay visible
-      // instead of being capped out by a long open list.
-      final room = (maxRows - done.length).clamp(0, maxRows);
-      final rows = [
-        ...open.take(room).map((t) => rowOf(t, done: false)),
-        ...done.map((t) => rowOf(t, done: true)),
-      ];
-      return rows.take(maxRows).toList();
+    List<Map<String, String>> openToday() {
+      final open = tasks.where((t) => t.isDueTodayOrOverdue).toList()
+        ..sort(TodoTask.sortForDisplay);
+      return open.map((t) => rowOf(t, done: false)).toList();
     }
 
-    final todayOpen = tasks.where((t) => t.isDueTodayOrOverdue).toList()
-      ..sort(TodoTask.sortForDisplay);
-    final inboxOpen =
-        tasks.where((t) => !t.isCompleted).toList()
-          ..sort(TodoTask.sortForDisplay);
+    List<Map<String, String>> openInbox() {
+      final open = tasks.where((t) => !t.isCompleted).toList()
+        ..sort(TodoTask.sortForDisplay);
+      return open.map((t) => rowOf(t, done: false)).toList();
+    }
 
-    final today = capped(todayOpen, doneToday);
-    final inbox = capped(inboxOpen, doneToday);
+    List<Map<String, String>> struck() =>
+        doneToday.map((t) => rowOf(t, done: true)).toList();
+
     return {
-      'today': today,
-      'inbox': inbox,
+      'today_open': openToday(),
+      'inbox_open': openInbox(),
+      'struck': struck(),
       'today_count': tasks.where((t) => t.isDueTodayOrOverdue).length,
       'inbox_count': tasks.where((t) => !t.isCompleted).length,
     };
@@ -125,9 +125,9 @@ class WidgetService {
         'inbox_count',
         payload['inbox_count']! as int,
       );
-      await HomeWidget.updateWidget(
-        qualifiedAndroidName: androidReceiver,
-      );
+      for (final receiver in androidReceivers) {
+        await HomeWidget.updateWidget(qualifiedAndroidName: receiver);
+      }
       // Rollover: re-render at next midnight so "Today" stays correct
       // and struck rows drop off.
       final now = DateTime.now();

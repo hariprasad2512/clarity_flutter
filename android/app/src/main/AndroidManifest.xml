@@ -44,17 +44,44 @@
             <meta-data
                 android:name="flutterEmbedding"
                 android:value="2" />
-            <!-- Phase 5 widget: Glance receiver (tap circles deep-link
-                 back into MainActivity; handled in the main isolate). -->
+            <!-- Phase 5 widgets: Glance receivers (small/medium/large). -->
             <receiver
-                android:name="com.harry.Clarity.ClarityWidgetReceiver"
+                android:name="com.harry.Clarity.ClarityWidgetSmallReceiver"
                 android:exported="false">
                 <intent-filter>
                     <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 </intent-filter>
                 <meta-data
                     android:name="android.appwidget.provider"
-                    android:resource="@xml/clarity_widget_info" />
+                    android:resource="@xml/clarity_widget_small" />
+            </receiver>
+            <receiver
+                android:name="com.harry.Clarity.ClarityWidgetMediumReceiver"
+                android:exported="false">
+                <intent-filter>
+                    <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                </intent-filter>
+                <meta-data
+                    android:name="android.appwidget.provider"
+                    android:resource="@xml/clarity_widget_medium" />
+            </receiver>
+            <receiver
+                android:name="com.harry.Clarity.ClarityWidgetLargeReceiver"
+                android:exported="false">
+                <intent-filter>
+                    <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                </intent-filter>
+                <meta-data
+                    android:name="android.appwidget.provider"
+                    android:resource="@xml/clarity_widget_large" />
+            </receiver>
+            <!-- home_widget background work (header switch, strike outbox). -->
+            <receiver
+                android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+                android:exported="true">
+                <intent-filter>
+                    <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+                </intent-filter>
             </receiver>
         </application>
         <!-- Required to query activities that can process text, see:

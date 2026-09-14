@@ -8,9 +8,12 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
@@ -34,16 +37,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Clarity home-screen widget v2 (Android). Google-Tasks rhythm: switchable
- * Today/Inbox header, roomy rows, red overdue labels, struck-till-midnight
- * completions (filled circle + dimmed title — Glance has no strikethrough).
+ * Clarity home-screen widget v3 (Android). Three store sizes (Small 3 rows,
+ * Medium 4, Large 6) with Google-Tasks rhythm: switchable Today/Inbox
+ * header, real strikethrough titles on completed rows (U+0336 combining
+ * stroke — Glance text has no strike style), red overdue labels.
  *
- * Display state only: rows render prefs JSON from Dart; the header switch
- * flips prefs in a background isolate (no app open); circle/row taps are
- * deep links applied in the main isolate, which owns the database.
+ * Display state only, rendered from prefs JSON:
+ * * header tap flips Today ⇄ Inbox in a background isolate (no app open);
+ * * circle tap strikes/undoes via a prefs outbox (no app open) — the app
+ *   reconciles pending ids on start/resume/pull;
+ * * row/background tap opens the app.
  */
 class ClarityWidget : GlanceAppWidget() {
 
+    override val sizeMode: SizeMode = SizeMode.Exact
     override val stateDefinition = HomeWidgetGlanceStateDefinition()
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -54,6 +61,19 @@ class ClarityWidget : GlanceAppWidget() {
         }
     }
 
+    private data class Row(
+        val id: String,
+        val title: String,
+        val due: String,
+        val done: Boolean,
+        val overdue: Boolean,
+    )
+
+    // Combining long stroke overlay: renders as struck text in Roboto
+    // (Glance Text has no strikethrough style).
+    private fun strike(text: String): String =
+        text.map { "${it}\u0336" }.joinToString("")
+
     @Composable
     private fun Content(context: Context, state: HomeWidgetGlanceState) {
         val prefs = state.preferences
@@ -63,18 +83,54 @@ class ClarityWidget : GlanceAppWidget() {
         } catch (_: Exception) {
             JSONObject()
         }
-        val listKey = if (selected == "inbox") "inbox" else "today"
+        val pending = try {
+            val raw = prefs.getString("pending_strikes", "[]") ?: "[]"
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.optString(it, "") }.toSet()
+        } catch (_: Exception) {
+            emptySet<String>()
+        }
+
+        fun rowsOf(key: String): List<Row> {
+            val arr = try {
+                doc.optJSONArray(key) ?: JSONArray()
+            } catch (_: Exception) {
+                JSONArray()
+            }
+            return (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val id = obj.optString("id", "")
+                val title = obj.optString("title", "")
+                if (id.isEmpty() || title.isEmpty()) return@mapNotNull null
+                Row(
+                    id = id,
+                    title = title,
+                    due = obj.optString("due", ""),
+                    done = obj.optString("done", "").isNotEmpty() ||
+                        pending.contains(id),
+                    overdue = obj.optString("overdue", "").isNotEmpty(),
+                )
+            }
+        }
+
+        val listKey = if (selected == "inbox") "inbox_open" else "today_open"
         val title = if (selected == "inbox") "Inbox" else "Today"
         val count = if (selected == "inbox") {
             prefs.getInt("inbox_count", 0) ?: 0
         } else {
             prefs.getInt("today_count", 0) ?: 0
         }
-        val rows = try {
-            doc.optJSONArray(listKey) ?: JSONArray()
-        } catch (_: Exception) {
-            JSONArray()
-        }
+
+        // Size buckets: Small ≤200dp wide, Medium ≤320dp, else Large.
+        val width = LocalSize.current.width
+        val maxRows = if (width <= 200.dp) 3 else if (width <= 320.dp) 4 else 6
+        val showDue = width > 200.dp
+
+        val open = rowsOf(listKey).filter { !it.done }
+        val struck = (rowsOf("struck") + open.filter { pending.contains(it.id) })
+            .distinctBy { it.id }
+        val room = (maxRows - struck.size).coerceAtLeast(0)
+        val displayed = (open.take(room) + struck).take(maxRows)
 
         Column(
             modifier = GlanceModifier
@@ -84,7 +140,6 @@ class ClarityWidget : GlanceAppWidget() {
                 .clickable(onClick = actionStartActivity<MainActivity>(
                     context, Uri.parse("com.harry.Clarity://today"))),
         ) {
-            // Switchable header: tap toggles Today ⇄ Inbox in place.
             Row(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -96,14 +151,14 @@ class ClarityWidget : GlanceAppWidget() {
                     title,
                     style = TextStyle(
                         fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
+                        fontSize = 16.sp,
                         color = GlanceTheme.colors.onSurface,
                     ),
                 )
                 Text(
                     " ▾",
                     style = TextStyle(
-                        fontSize = 14.sp,
+                        fontSize = 16.sp,
                         color = GlanceTheme.colors.onSurfaceVariant,
                     ),
                 )
@@ -111,12 +166,12 @@ class ClarityWidget : GlanceAppWidget() {
                 Text(
                     "$count",
                     style = TextStyle(
-                        fontSize = 14.sp,
+                        fontSize = 16.sp,
                         color = GlanceTheme.colors.primary,
                     ),
                 )
             }
-            if (rows.length() == 0) {
+            if (displayed.isEmpty()) {
                 Text(
                     if (selected == "inbox") "Inbox zero." else "Nothing due.",
                     style = TextStyle(
@@ -126,14 +181,7 @@ class ClarityWidget : GlanceAppWidget() {
                     modifier = GlanceModifier.padding(top = 6.dp),
                 )
             }
-            for (i in 0 until rows.length()) {
-                val obj = rows.optJSONObject(i) ?: continue
-                val id = obj.optString("id", "")
-                val rowTitle = obj.optString("title", "")
-                val due = obj.optString("due", "")
-                val done = obj.optString("done", "").isNotEmpty()
-                val overdue = obj.optString("overdue", "").isNotEmpty()
-                if (id.isEmpty() || rowTitle.isEmpty()) continue
+            for (row in displayed) {
                 Row(
                     modifier = GlanceModifier
                         .fillMaxWidth()
@@ -141,10 +189,10 @@ class ClarityWidget : GlanceAppWidget() {
                     verticalAlignment = Alignment.Vertical.CenterVertically,
                 ) {
                     Text(
-                        if (done) "●" else "○",
+                        if (row.done) "●" else "○",
                         style = TextStyle(
                             fontSize = 20.sp,
-                            color = if (done) {
+                            color = if (row.done) {
                                 GlanceTheme.colors.onSurfaceVariant
                             } else {
                                 GlanceTheme.colors.primary
@@ -152,31 +200,32 @@ class ClarityWidget : GlanceAppWidget() {
                         ),
                         modifier = GlanceModifier
                             .padding(end = 10.dp)
-                            .clickable(onClick = actionStartActivity<MainActivity>(
-                                context,
-                                Uri.parse("com.harry.Clarity://widget-toggle?id=$id"),
+                            .clickable(onClick = actionRunCallback<ToggleStrikeAction>(
+                                actionParametersOf(
+                                    ActionParameters.Key<String>("taskId") to row.id,
+                                ),
                             )),
                     )
                     Column {
                         Text(
-                            rowTitle,
+                            if (row.done) strike(row.title) else row.title,
                             maxLines = 1,
                             style = TextStyle(
                                 fontSize = 15.sp,
-                                color = if (done) {
+                                color = if (row.done) {
                                     GlanceTheme.colors.onSurfaceVariant
                                 } else {
                                     GlanceTheme.colors.onSurface
                                 },
                             ),
                         )
-                        if (due.isNotEmpty()) {
+                        if (showDue && row.due.isNotEmpty()) {
                             Text(
-                                due,
+                                row.due,
                                 maxLines = 1,
                                 style = TextStyle(
                                     fontSize = 12.sp,
-                                    color = if (overdue) {
+                                    color = if (row.overdue && !row.done) {
                                         GlanceTheme.colors.error
                                     } else {
                                         GlanceTheme.colors.onSurfaceVariant
@@ -198,11 +247,43 @@ class SwitchListAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val backgroundIntent =
-            HomeWidgetBackgroundIntent.getBroadcast(
-                context,
-                Uri.parse("clarity-widget://switch-list"),
-            )
-        backgroundIntent.send()
+        HomeWidgetBackgroundIntent.getBroadcast(
+            context,
+            Uri.parse("clarity-widget://switch-list"),
+        ).send()
     }
+}
+
+/**
+ * Circle tap: strike/undo via the prefs outbox (no app open). The app
+ * reconciles pending ids into real completions on start/resume/pull.
+ */
+class ToggleStrikeAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val id = parameters[ActionParameters.Key<String>("taskId")]
+            ?: return
+        HomeWidgetBackgroundIntent.getBroadcast(
+            context,
+            Uri.parse("com.harry.Clarity://widget-toggle?id=$id"),
+        ).send()
+    }
+}
+
+class ClarityWidgetSmallReceiver :
+    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityWidget>() {
+    override val glanceAppWidget = ClarityWidget()
+}
+
+class ClarityWidgetMediumReceiver :
+    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityWidget>() {
+    override val glanceAppWidget = ClarityWidget()
+}
+
+class ClarityWidgetLargeReceiver :
+    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityWidget>() {
+    override val glanceAppWidget = ClarityWidget()
 }

@@ -18,7 +18,11 @@ TodoTask _task(String id, String title,
 
 void main() {
   group('WidgetService.payloadFor (widget v2 contract)', () {
-    test('today/inbox lists, capped, flagged', () {
+    List<Map<String, String>> listOf(
+            Map<String, Object> payload, String key) =>
+        (payload[key]! as List).cast<Map<String, String>>();
+
+    test('today/inbox open + struck lists, flagged', () {
       final now = DateTime.now();
       final tasks = [
         _task('done-today', 'Did already',
@@ -36,40 +40,35 @@ void main() {
         _task('extra-1', 'Extra 1', due: now),
       ];
       final payload = WidgetService.payloadFor(tasks);
-      final today =
-          (payload['today']! as List).cast<Map<String, String>>();
-      final inbox =
-          (payload['inbox']! as List).cast<Map<String, String>>();
+      final todayOpen = listOf(payload, 'today_open');
+      final inboxOpen = listOf(payload, 'inbox_open');
+      final struck = listOf(payload, 'struck');
 
-      // Short fixture fits uncapped: 4 open + 1 struck.
-      expect(today.length, 5);
-      // Done-today lingers struck; long-ago done is gone.
-      expect(today.map((r) => r['title']), contains('Did already'));
-      expect(today.map((r) => r['title']), isNot(contains('Did long ago')));
-      expect(
-        today.firstWhere((r) => r['title'] == 'Did already')['done'],
-        '1',
-      );
+      // Struck = completed today only.
+      expect(struck.map((r) => r['title']), ['Did already']);
+      expect(struck.single['done'], '1');
       // Overdue flagged for red paint.
       expect(
-        today.firstWhere((r) => r['title'] == 'Overdue bill')['overdue'],
+        todayOpen
+            .firstWhere((r) => r['title'] == 'Overdue bill')['overdue'],
         '1',
       );
       expect(
-        today.firstWhere((r) => r['title'] == 'Call mom')['overdue'],
+        todayOpen
+            .firstWhere((r) => r['title'] == 'Call mom')['overdue'],
         '',
       );
-      // Inbox carries dated + future rows (undated sorts last per
-      // sortForDisplay, so it caps out here — covered by model tests).
-      expect(inbox.map((r) => r['title']), contains('Next week'));
-      expect(inbox.map((r) => r['title']), contains('Did already'));
-      expect(inbox.map((r) => r['title']), isNot(contains('Did long ago')));
+      // Today-open excludes undated/future/done; inbox carries all open.
+      expect(todayOpen.map((r) => r['title']),
+          containsAll(['Overdue bill', 'Call mom']));
+      expect(todayOpen.map((r) => r['title']), isNot(contains('No date')));
+      expect(inboxOpen.map((r) => r['title']), contains('Next week'));
       // Counts feed the header badges (uncapped totals).
       expect(payload['today_count'], 4); // overdue + today + 2 extras
       expect(payload['inbox_count'], 6); // all open incl. dated ones
     });
 
-    test('cap reserves struck rows first', () {
+    test('struck reserve: done rows always survive the cap', () {
       final now = DateTime.now();
       final tasks = [
         _task('done-1', 'Struck one',
@@ -80,18 +79,16 @@ void main() {
           _task('open-$i', 'Open $i', due: now),
       ];
       final payload = WidgetService.payloadFor(tasks);
-      final today =
-          (payload['today']! as List).cast<Map<String, String>>();
-      expect(today.length, WidgetService.maxRows);
-      // Both struck rows survive the cap (4 open + 2 struck).
-      expect(today.where((r) => r['done'] == '1'), hasLength(2));
-      expect(today.map((r) => r['title']), contains('Struck one'));
+      // Uncapped lists ship whole; Kotlin reserves struck space per size.
+      expect(listOf(payload, 'struck'), hasLength(2));
+      expect(listOf(payload, 'today_open'), hasLength(10));
     });
 
     test('empty input → empty lists, zero counts', () {
       final payload = WidgetService.payloadFor([]);
-      expect(payload['today'], isEmpty);
-      expect(payload['inbox'], isEmpty);
+      expect(payload['today_open'], isEmpty);
+      expect(payload['inbox_open'], isEmpty);
+      expect(payload['struck'], isEmpty);
       expect(payload['today_count'], 0);
       expect(payload['inbox_count'], 0);
     });
