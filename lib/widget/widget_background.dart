@@ -21,8 +21,6 @@ import 'widget_service.dart';
 ///   applies pending ids via [reconcileWidgetStrikes] on start/resume/pull.
 @pragma('vm:entry-point')
 FutureOr<void> widgetInteractCallback(Uri? uri) async {
-  // ignore: avoid_print
-  print('ClarityWidgetBG interact uri=$uri');
   if (uri == null) return;
   try {
     if (uri.toString() == WidgetService.switchUri) {
@@ -43,12 +41,8 @@ FutureOr<void> widgetInteractCallback(Uri? uri) async {
     final pending = await _pendingStrikes();
     if (pending.contains(id)) {
       pending.remove(id); // undo
-      // ignore: avoid_print
-      print('ClarityWidgetBG undo id=$id pending=$pending');
     } else {
       pending.add(id); // strike
-      // ignore: avoid_print
-      print('ClarityWidgetBG strike id=$id pending=$pending');
     }
     await HomeWidget.saveWidgetData<String>(
       'pending_strikes',
