@@ -5,6 +5,7 @@ import '../auth/auth_service.dart';
 import '../core/app_config.dart';
 import '../core/app_store.dart';
 import '../core/task_model.dart';
+import '../desktop/desktop.dart';
 import '../desktop/hotkey_service.dart';
 import '../sync/sync_engine.dart';
 
@@ -25,6 +26,8 @@ class Sidebar extends ConsumerWidget {
     final filter = ref.watch(filterProvider);
     final counts = ref.watch(countsProvider);
     final theme = Theme.of(context);
+    // Mobile drawer gets bigger type + padding; desktop stays dense.
+    final roomy = !isDesktopApp;
 
     return Container(
       color: theme.colorScheme.surfaceContainerLowest,
@@ -32,26 +35,30 @@ class Sidebar extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(roomy ? 20 : 16),
             child: FilledButton.icon(
               onPressed: onQuickAdd,
-              icon: const Icon(Icons.bolt, size: 18),
-              label: Text(HotkeyService.label),
+              icon: Icon(Icons.bolt, size: roomy ? 22 : 18),
+              label: Text(HotkeyService.label,
+                  style: TextStyle(fontSize: roomy ? 17 : 14)),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding:
+                    EdgeInsets.symmetric(vertical: roomy ? 16 : 12),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: EdgeInsets.symmetric(horizontal: roomy ? 20 : 16),
             child: Text(
               'Tasks',
-              style: theme.textTheme.labelSmall
+              style: (roomy
+                      ? theme.textTheme.labelLarge
+                      : theme.textTheme.labelSmall)
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
           ),
@@ -111,7 +118,7 @@ class _AccountFooter extends ConsumerWidget {
     final headline = user?.email ?? 'Local only';
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isDesktopApp ? 16 : 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -220,8 +227,11 @@ class _FilterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Roomier rows in the mobile drawer; desktop unchanged.
+    final roomy = !isDesktopApp;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      padding: EdgeInsets.symmetric(
+          horizontal: roomy ? 12 : 8, vertical: roomy ? 3 : 1),
       child: Material(
         color: selected
             ? Colors.green.withValues(alpha: 0.25)
@@ -231,18 +241,20 @@ class _FilterRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           onTap: onTap,
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: EdgeInsets.symmetric(
+                horizontal: 12, vertical: roomy ? 14 : 9),
             child: Row(
               children: [
-                Icon(_icon, size: 19),
-                const SizedBox(width: 10),
-                Text(filter.label),
+                Icon(_icon, size: roomy ? 24 : 19),
+                SizedBox(width: roomy ? 14 : 10),
+                Text(filter.label,
+                    style: TextStyle(fontSize: roomy ? 17 : 14)),
                 const Spacer(),
                 if (badge != null)
                   Text(
                     badge!,
                     style: TextStyle(
+                      fontSize: roomy ? 15 : 14,
                       color: Theme.of(context).colorScheme.outline,
                     ),
                   ),

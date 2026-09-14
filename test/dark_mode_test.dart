@@ -50,13 +50,13 @@ void main() {
       addTearDown(() => tester.binding.platformDispatcher
           .clearPlatformBrightnessTestValue());
       await pumpShell(tester);
-      expect(find.text('Today'), findsWidgets);
+      expect(find.text('Inbox'), findsWidgets);
       expect(appBrightness(tester), Brightness.light);
 
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.dark;
       await tester.pumpAndSettle();
-      expect(find.text('Today'), findsWidgets);
+      expect(find.text('Inbox'), findsWidgets);
       expect(appBrightness(tester), Brightness.dark);
     });
 

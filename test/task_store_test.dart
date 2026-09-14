@@ -172,4 +172,46 @@ void main() {
       expect(c.read(settingsProvider).snoozeMinutes, 15);
     });
   });
+
+  group('mobile defaults + Completed-today section', () {
+    test('filter defaults to Inbox outside desktop', () async {
+      final store = await LocalStore.openTest();
+      addTearDown(() => store.closeAndDelete());
+      final c = await _container(store);
+      expect(c.read(filterProvider), TaskFilter.inbox);
+    });
+
+    test('completed-today tracks done-today and undoes via toggle',
+        () async {
+      final store = await LocalStore.openTest();
+      addTearDown(() => store.closeAndDelete());
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final task = await notifier.add('Section task today');
+      expect(c.read(completedTodayProvider), isEmpty);
+      await notifier.toggle(task!);
+      expect(
+        c.read(completedTodayProvider).map((t) => t.id),
+        [task.id],
+      );
+      // Undo: un-complete removes it from the section.
+      await notifier.toggle(task);
+      expect(c.read(completedTodayProvider), isEmpty);
+    });
+
+    test('yesterday completions stay out of the section', () async {
+      final store = await LocalStore.openTest();
+      addTearDown(() => store.closeAndDelete());
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final task = await notifier.add('Old task');
+      await notifier.toggle(task!);
+      // Backdate the completion past midnight.
+      task.updatedAt =
+          DateTime.now().subtract(const Duration(days: 1));
+      await store.put(task);
+      notifier.refreshFromStore();
+      expect(c.read(completedTodayProvider), isEmpty);
+    });
+  });
 }

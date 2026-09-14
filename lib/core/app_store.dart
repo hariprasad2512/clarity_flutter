@@ -267,8 +267,9 @@ final taskListProvider =
 // -- filtering ---------------------------------------------------------------
 
 class FilterNotifier extends Notifier<TaskFilter> {
+  // Mobile opens on Inbox (capture-first flow); desktop keeps Today.
   @override
-  TaskFilter build() => TaskFilter.today;
+  TaskFilter build() => isDesktopApp ? TaskFilter.today : TaskFilter.inbox;
   void set(TaskFilter f) => state = f;
 }
 
@@ -315,6 +316,20 @@ final countsProvider = Provider<({int today, int inbox})>((ref) {
     today: tasks.where((t) => t.isDueTodayOrOverdue).length,
     inbox: tasks.where((t) => !t.isCompleted).length,
   );
+});
+
+/// Completed-today rows for the inline section below open tasks
+/// (Today + Inbox tabs). Undo = tap to un-complete. Mirrors the widget's
+/// linger rule; the Done tab stays the full history.
+final completedTodayProvider = Provider<List<TodoTask>>((ref) {
+  final now = DateTime.now();
+  final todayStart = DateTime(now.year, now.month, now.day);
+  final done = ref
+      .watch(taskListProvider)
+      .where((t) => t.isCompleted && !t.updatedAt.isBefore(todayStart))
+      .toList()
+    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  return done;
 });
 
 // -- tiny helper --------------------------------------------------------------

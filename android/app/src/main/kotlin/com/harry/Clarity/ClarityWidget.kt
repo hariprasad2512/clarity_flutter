@@ -191,7 +191,7 @@ class ClarityWidget : GlanceAppWidget() {
                     Text(
                         if (row.done) "●" else "○",
                         style = TextStyle(
-                            fontSize = 20.sp,
+                            fontSize = 26.sp,
                             color = if (row.done) {
                                 GlanceTheme.colors.onSurfaceVariant
                             } else {
@@ -199,7 +199,7 @@ class ClarityWidget : GlanceAppWidget() {
                             },
                         ),
                         modifier = GlanceModifier
-                            .padding(end = 10.dp)
+                            .padding(end = 12.dp)
                             .clickable(onClick = actionRunCallback<ToggleStrikeAction>(
                                 actionParametersOf(
                                     ActionParameters.Key<String>("taskId") to row.id,

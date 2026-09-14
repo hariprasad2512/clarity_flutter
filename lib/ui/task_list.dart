@@ -60,7 +60,11 @@ class _TaskListState extends ConsumerState<TaskList> {
   Widget build(BuildContext context) {
     final filter = ref.watch(filterProvider);
     final tasks = ref.watch(filteredTasksProvider);
+    final doneToday = ref.watch(completedTodayProvider);
     final theme = Theme.of(context);
+    final showDoneSection =
+        (filter == TaskFilter.today || filter == TaskFilter.inbox) &&
+            doneToday.isNotEmpty;
 
     // Re-evaluate chips as the user types.
     return Column(
@@ -179,12 +183,23 @@ class _TaskListState extends ConsumerState<TaskList> {
         ),
         // List / empty state
         Expanded(
-          child: tasks.isEmpty
+          child: tasks.isEmpty && !showDoneSection
               ? _EmptyState(filter: filter)
               : ListView.builder(
-                  itemCount: tasks.length,
-                  itemBuilder: (ctx, i) =>
-                      _TaskRow(task: tasks[i]),
+                  itemCount:
+                      tasks.length + (showDoneSection ? doneToday.length + 1 : 0),
+                  itemBuilder: (ctx, i) {
+                    if (i < tasks.length) {
+                      return _TaskRow(task: tasks[i]);
+                    }
+                    if (showDoneSection && i == tasks.length) {
+                      return _SectionHeader(
+                          label:
+                              'Completed today (${doneToday.length})');
+                    }
+                    return _TaskRow(
+                        task: doneToday[i - tasks.length - 1]);
+                  },
                 ),
         ),
         // Store footer (desktop only; mobile stays uncluttered).
@@ -340,6 +355,25 @@ class _TaskRow extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+              fontWeight: FontWeight.w600,
+            ),
       ),
     );
   }
