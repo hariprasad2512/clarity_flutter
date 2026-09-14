@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "setupDate": "2026-09-14",
+  "languages": [
+    "dart",
+    "swift",
+    "c",
+    "cpp",
+    "kotlin",
+    "shell",
+    "markdown"
+  ],
+  "framework": null,
+  "packageManager": null,
+  "agents": [
+    "backend-developer",
+    "mobile-developer",
+    "java-architect",
+    "kotlin-specialist",
+    "swift-expert",
+    "cpp-pro",
+    "spring-boot-engineer",
+    "flutter-expert",
+    "devops-engineer",
+    "platform-engineer",
+    "sre-engineer",
+    "code-reviewer",
+    "performance-engineer",
+    "cli-developer",
+    "dependency-manager",
+    "docs-writer",
+    "git-workflow-manager",
+    "test-writer",
+    "embedded-systems",
+    "game-developer",
+    "mobile-app-developer",
+    "technical-writer"
+  ],
+  "skills": [
+    "git-release",
+    "pr-review",
+    "test-patterns",
+    "deploy",
+    "dependency-audit",
+    "changelog-generate",
+    "ci-pipeline",
+    "env-setup"
+  ],
+  "modelStrategy": null,
+  "mcp": []
+}

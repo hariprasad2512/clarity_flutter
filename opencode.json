@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "platform-engineer": {
+      "steps": 15
+    },
+    "sre-engineer": {
+      "steps": 15
+    },
+    "code-reviewer": {
+      "steps": 15
+    },
+    "performance-engineer": {
+      "steps": 15
+    },
+    "dependency-manager": {
+      "steps": 10
+    },
+    "docs-writer": {
+      "steps": 10
+    },
+    "git-workflow-manager": {
+      "steps": 8
+    },
+    "technical-writer": {
+      "steps": 10
+    }
+  },
+  "compaction": {
+    "auto": true,
+    "prune": true
+  }
+}
