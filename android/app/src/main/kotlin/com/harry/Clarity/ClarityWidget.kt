@@ -26,7 +26,6 @@ import androidx.glance.text.TextStyle
 import es.antonborri.home_widget.HomeWidgetGlanceState
 import es.antonborri.home_widget.HomeWidgetGlanceStateDefinition
 import es.antonborri.home_widget.actionStartActivity
-import com.example.clarity_flutter.MainActivity
 import org.json.JSONArray
 
 /**
