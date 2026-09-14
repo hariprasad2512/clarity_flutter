@@ -97,6 +97,20 @@ class AuthService {
 
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
 
+/// Latest auth failure message for the sign-in gate. Set when the OAuth
+/// round-trip or session stream reports an error (e.g. no network,
+/// exchange failure); cleared on the next attempt. Without this, failures
+/// only appear in logs while the gate sits unchanged.
+class AuthErrorNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+  void set(String? message) => state = message;
+}
+
+final authErrorProvider =
+    NotifierProvider<AuthErrorNotifier, String?>(
+        AuthErrorNotifier.new);
+
 /// Current Supabase user; null when signed out. Drives the auth gate.
 final authUserProvider = StreamProvider<User?>((ref) {
   final auth = ref.watch(authServiceProvider);

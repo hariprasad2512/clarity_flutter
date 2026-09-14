@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'auth/auth_service.dart';
 import 'core/app_config.dart';
 import 'core/app_store.dart';
 import 'data/local_store.dart';
@@ -178,12 +179,20 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         (data) async {
           if (!mounted) return;
           if (data.session != null) {
+            ref.read(authErrorProvider.notifier).set(null);
             await ref.read(settingsProvider.notifier).setOfflineMode(false);
             await engine.syncNow();
           } else {
             // Remote expiry/sign-out elsewhere: surface the gate, keep data.
             ref.read(syncStatusProvider.notifier).set(SyncStatus.localOnly);
           }
+        },
+        onError: (Object e) {
+          // Auth stream failures (refresh, exchange) must never crash the
+          // run loop — and must be visible, not log-only.
+          ref
+              .read(authErrorProvider.notifier)
+              .set('Sign-in sync error: ${_shortError(e)}');
         },
       );
       // Periodic pull (native: 60s timer).
@@ -195,4 +204,14 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// One-line error summary without leaking tokens or URLs.
+String _shortError(Object e) {
+  final s = e.toString();
+  if (s.contains('SocketException') || s.contains('Connection failed')) {
+    return 'could not reach the server — check your connection';
+  }
+  final first = s.split('\n').first;
+  return first.length > 140 ? '${first.substring(0, 140)}…' : first;
 }

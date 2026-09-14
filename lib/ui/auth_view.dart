@@ -26,6 +26,7 @@ class _AuthViewState extends ConsumerState<AuthView> {
       _busy = true;
       _error = null;
     });
+    ref.read(authErrorProvider.notifier).set(null);
     try {
       final auth = ref.read(authServiceProvider);
       if (!kIsWeb &&
@@ -49,6 +50,8 @@ class _AuthViewState extends ConsumerState<AuthView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final remoteError = ref.watch(authErrorProvider);
+    final shownError = _error ?? remoteError;
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(40),
@@ -96,12 +99,12 @@ class _AuthViewState extends ConsumerState<AuthView> {
                   ),
                 ),
               ),
-              if (_error != null) ...[
+              if (shownError != null) ...[
                 const SizedBox(height: 8),
                 SizedBox(
                   width: 300,
                   child: Text(
-                    _error!,
+                    shownError,
                     textAlign: TextAlign.center,
                     style: TextStyle(color: theme.colorScheme.error),
                   ),
