@@ -94,27 +94,20 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
         bindings: {
           const SingleActivator(LogicalKeyboardKey.escape): _dismiss,
         },
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Center(
-            child: Container(
-              width: 520,
+        child: Builder(
+          builder: (context) {
+          // Full-bleed theme surface: the window is opaque (AppKit
+          // transparency isn't reachable from plugins), so the panel
+          // paints its own background edge-to-edge. Follows light/dark.
+          final surface = Theme.of(context).colorScheme.surface;
+          return Scaffold(
+            backgroundColor: surface,
+            body: Container(
+              color: surface,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.green.withValues(alpha: 0.5),
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    blurRadius: 32,
-                    color: Color(0x55000000),
-                  ),
-                ],
-              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -180,7 +173,8 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
                 ],
               ),
             ),
-          ),
+          );
+        },
         ),
       ),
     );
