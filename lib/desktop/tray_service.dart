@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -41,10 +42,12 @@ class TrayService with TrayListener {
   Future<void> Function()? onQuit;
 
   /// Asset key resolved by the plugin to `data/flutter_assets/<key>`.
+  /// Full-color green check everywhere (user choice over monochrome
+  /// template — the black template rendered invisibly on dark menu bars).
   static String get iconAsset {
     if (Platform.isWindows) return 'assets/tray/tray_icon.ico';
     if (Platform.isLinux) return 'assets/tray/tray_icon_linux.png';
-    return 'assets/tray/tray_icon@2x.png';
+    return 'assets/tray/tray_icon_color@2x.png';
   }
 
   static Menu buildMenu({
@@ -74,10 +77,7 @@ class TrayService with TrayListener {
     onQuit = quit;
     try {
       _tray.addListener(this);
-      await _tray.setIcon(
-        iconAsset,
-        isTemplate: Platform.isMacOS,
-      );
+      await _tray.setIcon(iconAsset);
       await _tray.setToolTip('Clarity — minimal todo');
       await _tray.setContextMenu(buildMenu(
         quickAdd: () => onQuickAdd?.call(),
@@ -90,7 +90,9 @@ class TrayService with TrayListener {
         await _windows.hide();
       }));
       _ready = true;
-    } catch (_) {
+    } catch (e) {
+      // Visible in debug runs — a silent tray is worse than a log line.
+      debugPrint('Clarity tray init failed: $e');
       _ready = false;
     }
   }
@@ -108,9 +110,14 @@ class TrayService with TrayListener {
 
   @override
   void onTrayIconMouseDown() {
-    // Left-click toggles the window (native menu-bar behavior).
+    // macOS parity with native MenuBarExtra: click shows the menu.
+    // Windows/Linux keep click-to-toggle (platform convention).
     () async {
       try {
+        if (Platform.isMacOS) {
+          await _tray.popUpContextMenu();
+          return;
+        }
         if (await _windows.isVisible()) {
           await _windows.hide();
         } else {

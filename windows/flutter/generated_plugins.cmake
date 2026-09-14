@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
+  desktop_multi_window
   flutter_timezone
   hotkey_manager_windows
   screen_retriever_windows

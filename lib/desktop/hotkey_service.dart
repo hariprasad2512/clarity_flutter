@@ -24,6 +24,15 @@ class HotkeyService {
   final HotKeyManager? _managerOverride;
   HotKeyManager? _manager;
   HotKeyManager get _m => _manager ??= _managerOverride ?? hotKeyManager;
+
+  // Native hotkey events are trusted as-is: Carbon only fires when the
+  // full chord was pressed. (An earlier "phantom" theory was disproven —
+  // Dart-side key sampling races fast key releases, so it must NOT gate.)
+  // Rapid repeats are debounced; a second press just refocuses the panel.
+  static const _settleTime = Duration(milliseconds: 750);
+  static const _debounceTime = Duration(milliseconds: 500);
+  DateTime _ignoreUntil = DateTime.fromMicrosecondsSinceEpoch(0);
+  DateTime? _lastFire;
   HotKey? _hotkey;
   bool _ready = false;
 
@@ -49,8 +58,18 @@ class HotkeyService {
       _hotkey = buildHotkey();
       await _m.register(
         _hotkey!,
-        keyDownHandler: (_) => onQuickAdd(),
+        keyDownHandler: (_) {
+          final now = DateTime.now();
+          if (now.isBefore(_ignoreUntil)) return;
+          if (_lastFire != null &&
+              now.difference(_lastFire!) < _debounceTime) {
+            return;
+          }
+          _lastFire = now;
+          onQuickAdd();
+        },
       );
+      _ignoreUntil = DateTime.now().add(_settleTime);
       _ready = true;
     } catch (_) {
       _ready = false;

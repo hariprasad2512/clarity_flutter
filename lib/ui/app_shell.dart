@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/auth_service.dart';
 import '../core/app_config.dart';
 import '../core/app_store.dart';
+import '../desktop/desktop.dart';
+import '../desktop/quick_add_host.dart';
 import 'auth_view.dart';
 import 'quick_add_dialog.dart';
 import 'settings_view.dart';
@@ -29,10 +31,21 @@ class AppShell extends ConsumerWidget {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= 760) {
-          return _WideLayout(onQuickAdd: () => showQuickAdd(context));
+        // Desktop summons the floating Spotlight-style panel; mobile/web
+        // (no sub-windows) keep the in-window dialog. One Quick Add
+        // everywhere, platform-appropriate presentation.
+        void quickAdd() {
+          if (isDesktopApp) {
+            ref.read(quickAddHostProvider).summon();
+          } else {
+            showQuickAdd(context);
+          }
         }
-        return _NarrowLayout(onQuickAdd: () => showQuickAdd(context));
+
+        if (constraints.maxWidth >= 760) {
+          return _WideLayout(onQuickAdd: quickAdd);
+        }
+        return _NarrowLayout(onQuickAdd: quickAdd);
       },
     );
   }

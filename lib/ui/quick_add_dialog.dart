@@ -31,12 +31,18 @@ class _QuickAddDialogState extends ConsumerState<QuickAddDialog> {
   DateTime? get _parsedDate =>
       _showDatePicker ? _manualDate : DateParser.extractDate(_ctrl.text);
 
-  Future<void> _save() async {
+  /// Enter (or Add) saves and closes — matching the floating panel.
+  /// Rapid entry = summon again (hotkey/FAB).
+  Future<void> _save({bool close = true}) async {
     final task = await ref.read(taskListProvider.notifier).add(
           _ctrl.text,
           manualDate: _showDatePicker ? _manualDate : null,
         );
     if (task == null || !mounted) return;
+    if (close) {
+      Navigator.of(context).pop();
+      return;
+    }
     _ctrl.clear();
     setState(() {
       _showDatePicker = false;
@@ -125,7 +131,7 @@ class _QuickAddDialogState extends ConsumerState<QuickAddDialog> {
                               const SizedBox(width: 6),
                               Text(
                                 _ctrl.text.isEmpty
-                                    ? '⏎ save · esc dismiss'
+                                    ? '⏎ save & close · esc dismiss'
                                     : 'No date — goes to Inbox',
                                 style: const TextStyle(
                                     color: Colors.grey),

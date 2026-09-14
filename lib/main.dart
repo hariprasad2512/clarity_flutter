@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,25 +13,31 @@ import 'core/app_store.dart';
 import 'data/local_store.dart';
 import 'desktop/desktop.dart';
 import 'desktop/hotkey_service.dart';
+import 'desktop/quick_add_host.dart';
+import 'desktop/quick_add_window.dart';
 import 'desktop/tray_service.dart';
 import 'notifications/notification_service.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
-import 'ui/quick_add_dialog.dart';
 
-/// Clarity for Flutter — Phase 3: local-first core + actionable
-/// notifications + Supabase Auth (Google) + Postgres sync.
+/// Clarity for Flutter — Phase 4: previous phases + floating Quick Add,
+/// global hotkey, tray, launch-at-login.
 ///
-/// Bootstrap: open Hive store + SharedPreferences, init notifications and
-/// (when configured) Supabase, build the sync engine bound to a live
-/// container, then inject everything via overrides. Hotkey and widgets
-/// arrive in Phases 4–5.
-Future<void> main() async {
+/// Two entrypoints share this file (same pattern as the plugin example):
+/// * main window (default): the full app below.
+/// * `'quick_add'` sub-window: [quickAddWindowMain] — a dumb input panel in
+///   its own isolate. It never touches Hive/Supabase; submits come back
+///   over the multi-window channel and are created here.
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (isDesktopApp) {
-    // Window controls (show/focus/hide) for tray + hotkey summoning.
     await windowManager.ensureInitialized();
+    final self = await WindowController.fromCurrentEngine();
+    if (parseWindowArguments(self.arguments).isPanel) {
+      await quickAddWindowMain(self);
+      return;
+    }
   }
   final store = await LocalStore.open();
   final prefs = await SharedPreferences.getInstance();
@@ -59,8 +66,25 @@ Future<void> main() async {
       syncEngineProvider.overrideWithValue(null),
       hotkeyServiceProvider.overrideWithValue(HotkeyService()),
       trayServiceProvider.overrideWithValue(TrayService()),
+      quickAddHostProvider.overrideWithValue(QuickAddHost()),
     ],
   );
+
+  if (isDesktopApp) {
+    // Panel submits land here (main isolate owns Hive + sync + alerts).
+    final self = await WindowController.fromCurrentEngine();
+    container.read(quickAddHostProvider).mainWindowId = self.windowId;
+    await self.setWindowMethodHandler((call) async {
+      if (call.method == 'quick_add_submit') {
+        final payload = parseQuickAddPayload(call.arguments);
+        if (payload == null) return false;
+        final task = await container
+            .read(taskListProvider.notifier)
+            .add(payload.text, manualDate: payload.due);
+        return task != null;
+      }
+    });
+  }
 
   if (AppConfig.isConfigured) {
     final engine = SyncEngine(
@@ -87,6 +111,8 @@ Future<void> main() async {
           .overrideWithValue(container.read(hotkeyServiceProvider)),
       trayServiceProvider
           .overrideWithValue(container.read(trayServiceProvider)),
+      quickAddHostProvider
+          .overrideWithValue(container.read(quickAddHostProvider)),
     ]);
     engine.status.listen((s) {
       container.read(syncStatusProvider.notifier).set(s);
@@ -218,13 +244,14 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     });
   }
 
-  /// Desktop integrations: global hotkey + tray (hide-on-close, Quit).
-  /// No-ops on mobile/web/tests via the services' own guards.
+  /// Desktop integrations: floating Quick Add (hotkey/tray/buttons),
+  /// tray (hide-on-close, Quit). No-ops on mobile/web/tests via guards.
   Future<void> _initDesktop() async {
     final tray = ref.read(trayServiceProvider);
-    await ref.read(hotkeyServiceProvider).init(_summonQuickAdd);
+    final summon = ref.read(quickAddHostProvider).summon;
+    await ref.read(hotkeyServiceProvider).init(summon);
     await tray.init(
-      quickAdd: _summonQuickAdd,
+      quickAdd: summon,
       show: () async {
         try {
           await windowManager.show();
@@ -235,22 +262,6 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       },
       quit: () => tray.quit(),
     );
-  }
-
-  /// Brings the window forward and opens Quick Add — the shared target of
-  /// the global hotkey and the tray menu (native QuickAddPanel behavior).
-  Future<void> _summonQuickAdd() async {
-    if (!mounted) return;
-    if (isDesktopApp) {
-      try {
-        await windowManager.show();
-        await windowManager.focus();
-      } catch (_) {
-        // Best-effort: still open the dialog wherever we are.
-      }
-    }
-    if (!mounted) return;
-    await showQuickAdd(context);
   }
 
   @override

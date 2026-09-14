@@ -8,6 +8,7 @@ import 'package:clarity_flutter/core/app_store.dart';
 import 'package:clarity_flutter/data/local_store.dart';
 import 'package:clarity_flutter/desktop/desktop.dart';
 import 'package:clarity_flutter/desktop/hotkey_service.dart';
+import 'package:clarity_flutter/desktop/quick_add_host.dart';
 import 'package:clarity_flutter/desktop/tray_service.dart';
 
 Future<ProviderContainer> _container(LocalStore store) async {
@@ -97,8 +98,46 @@ void main() {
     });
   });
 
-  group('launch-at-login setting', () {
-    test('defaults off and stays off outside desktop', () async {
+  group('floating panel window contract', () {
+    test('arguments round-trip the main window id', () {
+      expect(quickAddArguments('abc-123'), 'quick_add:abc-123');
+      expect(quickAddArguments(null), 'quick_add');
+      expect(
+        parseWindowArguments('quick_add:abc-123'),
+        (isPanel: true, mainWindowId: 'abc-123'),
+      );
+      expect(
+        parseWindowArguments('quick_add'),
+        (isPanel: true, mainWindowId: null),
+      );
+      expect(
+        parseWindowArguments(''),
+        (isPanel: false, mainWindowId: null),
+      );
+    });
+
+    test('payload parses text + optional due, rejects junk', () {
+      final ok = parseQuickAddPayload({'text': '  Buy milk  '});
+      expect(ok?.text, '  Buy milk  ');
+      expect(ok?.due, isNull);
+      final dated = parseQuickAddPayload(
+          {'text': 'x', 'dueMillis': 1757896800000});
+      expect(
+        dated?.due,
+        DateTime.fromMillisecondsSinceEpoch(1757896800000),
+      );
+      expect(parseQuickAddPayload({'text': '   '}), isNull);
+      expect(parseQuickAddPayload({'nope': 1}), isNull);
+      expect(parseQuickAddPayload('junk'), isNull);
+      expect(parseQuickAddPayload(null), isNull);
+    });
+
+    test('summon is a safe no-op in tests', () async {
+      await QuickAddHost().summon();
+    });
+  });
+
+  group('launch-at-login setting', () {    test('defaults off and stays off outside desktop', () async {
       final store = await LocalStore.openTest();
       addTearDown(() => store.closeAndDelete());
       final c = await _container(store);
