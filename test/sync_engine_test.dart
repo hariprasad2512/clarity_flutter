@@ -131,6 +131,24 @@ void main() {
       expect(local.single.title, 'Server title');
     });
 
+    test('equal timestamps → local kept (no flip-flop)', () async {
+      final stamp = DateTime.now().subtract(const Duration(hours: 1));
+      local = [_local('a', 'Local title', updated: stamp)];
+      local.single.needsSync = false;
+      final server = TodoTask(
+        id: 'a',
+        title: 'Same-stamp server title',
+        createdAt: stamp,
+        updatedAt: stamp,
+      );
+      remote.server['a'] = server.toServerRow('user-1');
+      await engine.syncNow();
+      // Same stamp means "not newer": local wins. This is exactly why
+      // dashboard edits need the auto-touch trigger (which bumps the
+      // stamp) to become visible — pinned here by design.
+      expect(local.single.title, 'Local title');
+    });
+
     test('unpushed local edits survive the pull', () async {
       final base = DateTime.now().subtract(const Duration(hours: 3));
       local = [_local('a', 'Local edit', pending: true, updated: base)];
