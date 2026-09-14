@@ -8,8 +8,11 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
@@ -23,19 +26,21 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetGlanceState
 import es.antonborri.home_widget.HomeWidgetGlanceStateDefinition
 import es.antonborri.home_widget.actionStartActivity
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Clarity home-screen widget (Android). Mirrors the native widget contract:
- * incomplete Today/overdue tasks first, max 6 rows.
+ * Clarity home-screen widget v2 (Android). Google-Tasks rhythm: switchable
+ * Today/Inbox header, roomy rows, red overdue labels, struck-till-midnight
+ * completions (filled circle + dimmed title — Glance has no strikethrough).
  *
- * Data comes from prefs JSON written by Dart (`tasks_json`, `today_count`).
- * Taps are deep links handled in the main isolate — the widget never
- * touches the database: circle → toggle (opens app, completes instantly),
- * row/background → open Today.
+ * Display state only: rows render prefs JSON from Dart; the header switch
+ * flips prefs in a background isolate (no app open); circle/row taps are
+ * deep links applied in the main isolate, which owns the database.
  */
 class ClarityWidget : GlanceAppWidget() {
 
@@ -52,72 +57,101 @@ class ClarityWidget : GlanceAppWidget() {
     @Composable
     private fun Content(context: Context, state: HomeWidgetGlanceState) {
         val prefs = state.preferences
-        val tasks = try {
-            JSONArray(prefs.getString("tasks_json", "[]") ?: "[]")
+        val selected = prefs.getString("selected_list", "today") ?: "today"
+        val doc = try {
+            JSONObject(prefs.getString("tasks_json", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val listKey = if (selected == "inbox") "inbox" else "today"
+        val title = if (selected == "inbox") "Inbox" else "Today"
+        val count = if (selected == "inbox") {
+            prefs.getInt("inbox_count", 0) ?: 0
+        } else {
+            prefs.getInt("today_count", 0) ?: 0
+        }
+        val rows = try {
+            doc.optJSONArray(listKey) ?: JSONArray()
         } catch (_: Exception) {
             JSONArray()
         }
-        val count = prefs.getInt("today_count", 0) ?: 0
 
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(GlanceTheme.colors.surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
                 .clickable(onClick = actionStartActivity<MainActivity>(
                     context, Uri.parse("com.harry.Clarity://today"))),
         ) {
+            // Switchable header: tap toggles Today ⇄ Inbox in place.
             Row(
-                modifier = GlanceModifier.fillMaxWidth(),
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .clickable(onClick = actionRunCallback<SwitchListAction>()),
                 verticalAlignment = Alignment.Vertical.CenterVertically,
             ) {
                 Text(
-                    "Today",
+                    title,
                     style = TextStyle(
                         fontWeight = FontWeight.Medium,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         color = GlanceTheme.colors.onSurface,
+                    ),
+                )
+                Text(
+                    " ▾",
+                    style = TextStyle(
+                        fontSize = 14.sp,
+                        color = GlanceTheme.colors.onSurfaceVariant,
                     ),
                 )
                 Spacer(modifier = GlanceModifier.defaultWeight())
                 Text(
                     "$count",
                     style = TextStyle(
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         color = GlanceTheme.colors.primary,
                     ),
                 )
             }
-            if (tasks.length() == 0) {
+            if (rows.length() == 0) {
                 Text(
-                    "Nothing due.",
+                    if (selected == "inbox") "Inbox zero." else "Nothing due.",
                     style = TextStyle(
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = GlanceTheme.colors.onSurfaceVariant,
                     ),
-                    modifier = GlanceModifier.padding(top = 4.dp),
+                    modifier = GlanceModifier.padding(top = 6.dp),
                 )
             }
-            for (i in 0 until tasks.length()) {
-                val obj = tasks.optJSONObject(i) ?: continue
+            for (i in 0 until rows.length()) {
+                val obj = rows.optJSONObject(i) ?: continue
                 val id = obj.optString("id", "")
-                val title = obj.optString("title", "")
+                val rowTitle = obj.optString("title", "")
                 val due = obj.optString("due", "")
-                if (id.isEmpty() || title.isEmpty()) continue
+                val done = obj.optString("done", "").isNotEmpty()
+                val overdue = obj.optString("overdue", "").isNotEmpty()
+                if (id.isEmpty() || rowTitle.isEmpty()) continue
                 Row(
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(vertical = 3.dp),
+                        .padding(vertical = 7.dp),
                     verticalAlignment = Alignment.Vertical.CenterVertically,
                 ) {
                     Text(
-                        "○",
+                        if (done) "●" else "○",
                         style = TextStyle(
-                            fontSize = 18.sp,
-                            color = GlanceTheme.colors.primary,
+                            fontSize = 20.sp,
+                            color = if (done) {
+                                GlanceTheme.colors.onSurfaceVariant
+                            } else {
+                                GlanceTheme.colors.primary
+                            },
                         ),
                         modifier = GlanceModifier
-                            .padding(end = 8.dp)
+                            .padding(end = 10.dp)
                             .clickable(onClick = actionStartActivity<MainActivity>(
                                 context,
                                 Uri.parse("com.harry.Clarity://widget-toggle?id=$id"),
@@ -125,11 +159,15 @@ class ClarityWidget : GlanceAppWidget() {
                     )
                     Column {
                         Text(
-                            title,
+                            rowTitle,
                             maxLines = 1,
                             style = TextStyle(
-                                fontSize = 13.sp,
-                                color = GlanceTheme.colors.onSurface,
+                                fontSize = 15.sp,
+                                color = if (done) {
+                                    GlanceTheme.colors.onSurfaceVariant
+                                } else {
+                                    GlanceTheme.colors.onSurface
+                                },
                             ),
                         )
                         if (due.isNotEmpty()) {
@@ -137,8 +175,12 @@ class ClarityWidget : GlanceAppWidget() {
                                 due,
                                 maxLines = 1,
                                 style = TextStyle(
-                                    fontSize = 11.sp,
-                                    color = GlanceTheme.colors.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    color = if (overdue) {
+                                        GlanceTheme.colors.error
+                                    } else {
+                                        GlanceTheme.colors.onSurfaceVariant
+                                    },
                                 ),
                             )
                         }
@@ -146,5 +188,21 @@ class ClarityWidget : GlanceAppWidget() {
                 }
             }
         }
+    }
+}
+
+/** Header tap: flip Today ⇄ Inbox via the background isolate (no app open). */
+class SwitchListAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val backgroundIntent =
+            HomeWidgetBackgroundIntent.getBroadcast(
+                context,
+                Uri.parse("clarity-widget://switch-list"),
+            )
+        backgroundIntent.send()
     }
 }

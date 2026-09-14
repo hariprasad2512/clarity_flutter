@@ -23,6 +23,7 @@ import 'notifications/notification_service.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
+import 'widget/widget_background.dart';
 import 'widget/widget_service.dart';
 
 /// Clarity for Flutter — Phase 4: previous phases + floating Quick Add,
@@ -59,6 +60,9 @@ Future<void> main(List<String> args) async {
       publishableKey: AppConfig.supabaseAnonKey,
     );
   }
+
+  // Widget header switch (background isolate, Android only).
+  await registerWidgetInteractivity();
 
   final container = ProviderContainer(
     overrides: [
