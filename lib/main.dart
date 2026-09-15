@@ -23,7 +23,9 @@ import 'notifications/notification_service.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
+import 'ui/task_composer_sheet.dart';
 import 'widget/widget_background.dart';
+import 'widget/widget_refresh_worker.dart';
 import 'widget/widget_service.dart';
 
 /// Clarity for Flutter — Phase 4: previous phases + floating Quick Add,
@@ -63,6 +65,8 @@ Future<void> main(List<String> args) async {
 
   // Widget header switch (background isolate, Android only).
   await registerWidgetInteractivity();
+  // Widget freshness worker (re-render only, Android only).
+  await registerWidgetRefreshWorker();
 
   final container = ProviderContainer(
     overrides: [
@@ -148,13 +152,16 @@ Future<void> main(List<String> args) async {
   );
 }
 
+/// Global navigator for context-free routing (widget compose taps).
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
 class ClarityApp extends StatelessWidget {
   const ClarityApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Clarity',
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
@@ -297,14 +304,20 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   /// Widget taps land here as deep links (`widgetClicked`): circle taps
   /// toggle immediately in the main isolate (the widget never touches
   /// Hive itself — single-isolate box locks). Plain opens need no action.
-  /// Android-only in Phase 5 (no iOS extension yet; no plugin elsewhere).
+  /// QuickAdd-tile taps open the composer. Android-only in Phase 5
+  /// (no iOS extension yet; no plugin elsewhere).
   void _listenWidgetTaps() {
     if (_widgetSub != null) return;
     if (kIsWeb || !Platform.isAndroid) return;
+    _handleInitialWidgetUri();
     try {
       _widgetSub = HomeWidget.widgetClicked.listen(
         (uri) async {
           if (!mounted || uri == null) return;
+          if (WidgetService.isComposeUri(uri)) {
+            _openComposer();
+            return;
+          }
           final id = WidgetService.parseToggleId(uri);
           if (id == null) return; // plain open (today) — nothing to apply
           await ref.read(taskListProvider.notifier).completeById(id);
@@ -314,6 +327,28 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     } catch (_) {
       // Best-effort (tests).
     }
+  }
+
+  /// Cold-start via widget (e.g. QuickAdd tile while the app was dead).
+  Future<void> _handleInitialWidgetUri() async {
+    try {
+      final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+      if (!mounted || uri == null) return;
+      if (WidgetService.isComposeUri(uri)) {
+        // Wait a frame so the navigator exists.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openComposer();
+        });
+      }
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  void _openComposer() {
+    final ctx = appNavigatorKey.currentContext;
+    if (ctx == null) return;
+    showTaskComposer(ctx);
   }
 
   @override

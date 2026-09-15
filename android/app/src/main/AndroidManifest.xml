@@ -44,7 +44,7 @@
             <meta-data
                 android:name="flutterEmbedding"
                 android:value="2" />
-            <!-- Phase 5 widgets: Glance receivers (small/medium/large). -->
+            <!-- Phase 5 widgets: QuickAdd tile + Medium/Large lists. -->
             <receiver
                 android:name="com.harry.Clarity.ClarityWidgetSmallReceiver"
                 android:exported="false">

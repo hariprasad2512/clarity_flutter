@@ -20,6 +20,7 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -273,9 +274,44 @@ class ToggleStrikeAction : ActionCallback {
     }
 }
 
+/**
+ * Quick-add tile (replaces the small list widget): a centered ＋ that
+ * deep-links straight into the composer sheet. No task data needed.
+ */
+class ClarityQuickAddWidget : GlanceAppWidget() {
+
+    override val sizeMode: SizeMode = SizeMode.Exact
+    override val stateDefinition = HomeWidgetGlanceStateDefinition()
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        provideContent {
+            GlanceTheme {
+                Box(
+                    modifier = GlanceModifier
+                        .fillMaxSize()
+                        .background(GlanceTheme.colors.primaryContainer)
+                        .clickable(onClick = actionStartActivity<MainActivity>(
+                            context,
+                            Uri.parse("com.harry.Clarity://compose"))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "+",
+                        style = TextStyle(
+                            fontSize = 48.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = GlanceTheme.colors.onPrimaryContainer,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
 class ClarityWidgetSmallReceiver :
-    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityWidget>() {
-    override val glanceAppWidget = ClarityWidget()
+    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityQuickAddWidget>() {
+    override val glanceAppWidget = ClarityQuickAddWidget()
 }
 
 class ClarityWidgetMediumReceiver :

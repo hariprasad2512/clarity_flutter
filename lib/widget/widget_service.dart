@@ -22,12 +22,20 @@ import '../core/task_model.dart';
 ///   Hive directly (single-isolate box locks) — it renders prefs JSON.
 class WidgetService {
   /// Fully-qualified Glance receivers (must match AndroidManifest).
-  /// All three sizes update together — one data write, three re-renders.
+  /// QuickAdd tile + Medium/Large lists update together.
   static const androidReceivers = [
-    'com.harry.Clarity.ClarityWidgetSmallReceiver',
+    'com.harry.Clarity.ClarityWidgetQuickAddReceiver',
     'com.harry.Clarity.ClarityWidgetMediumReceiver',
     'com.harry.Clarity.ClarityWidgetLargeReceiver',
   ];
+
+  /// Deep link opening the task composer (QuickAdd tile).
+  static const String composeUri = 'com.harry.Clarity://compose';
+
+  /// True for compose taps (open composer, no task action).
+  static bool isComposeUri(Uri uri) =>
+      uri.scheme.toLowerCase() == 'com.harry.clarity' &&
+      uri.host.toLowerCase() == 'compose';
 
   /// Max rows, mirroring the native widget's cap.
   static const maxRows = 6;
@@ -105,18 +113,26 @@ class WidgetService {
   }
 
   /// Writes prefs JSON + asks the OS to re-render. Android-only in
-  /// Phase 5; safe no-op elsewhere and in tests. Best-effort throughout.
-  /// Preserves the header's selected list (owned by the background
-  /// switch callback).
+  /// Phase 5; safe no-op elsewhere and in tests.
+  ///
+  /// Each step is guarded independently so one failing call (e.g. exact
+  /// alarms denied on some OEM skins) can never block the others. Writes
+  /// `widget_updated_at` (epoch ms) as proof-of-refresh, verifiable via
+  /// prefs dump on device. Preserves the header's selected list (owned
+  /// by the background switch callback).
   Future<void> refresh(List<TodoTask> tasks) async {
     if (kIsWeb || !Platform.isAndroid) return;
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    final payload = payloadFor(tasks);
     try {
-      final payload = payloadFor(tasks);
       await HomeWidget.saveWidgetData<String>(
         'tasks_json',
         jsonEncode(payload),
       );
+    } catch (_) {
+      return; // Without data, re-rendering is pointless.
+    }
+    try {
       await HomeWidget.saveWidgetData<int>(
         'today_count',
         payload['today_count']! as int,
@@ -125,9 +141,21 @@ class WidgetService {
         'inbox_count',
         payload['inbox_count']! as int,
       );
-      for (final receiver in androidReceivers) {
+      await HomeWidget.saveWidgetData<int>(
+        'widget_updated_at',
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } catch (_) {
+      // Counts/timestamp are advisory; continue to re-render.
+    }
+    for (final receiver in androidReceivers) {
+      try {
         await HomeWidget.updateWidget(qualifiedAndroidName: receiver);
+      } catch (_) {
+        // One size failing must not block the others.
       }
+    }
+    try {
       // Rollover: re-render at next midnight so "Today" stays correct
       // and struck rows drop off.
       final now = DateTime.now();
@@ -135,7 +163,7 @@ class WidgetService {
           DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
       await HomeWidget.scheduleWidgetUpdates([midnight]);
     } catch (_) {
-      // Best-effort: widget must never break the app.
+      // Exact alarms may be denied on some skins; periodic worker covers.
     }
   }
 }
