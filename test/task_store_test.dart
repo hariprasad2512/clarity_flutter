@@ -81,6 +81,58 @@ void main() {
       );
     });
 
+    test('updateTask edits title and due, stamps sync', () async {
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final task = await notifier.add('Old title');
+      final when = DateTime.now().add(const Duration(hours: 2));
+      expect(
+        await notifier.updateTask(task!.id, title: 'New title', dueDate: when),
+        isTrue,
+      );
+      final updated = store.all.single;
+      expect(updated.title, 'New title');
+      expect(updated.dueDate, when);
+      expect(updated.needsSync, isTrue);
+      expect(c.read(taskListProvider).single.title, 'New title');
+    });
+
+    test('updateTask trims title, rejects blank and unknown ids', () async {
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final task = await notifier.add('Keep me');
+      expect(await notifier.updateTask(task!.id, title: '   '), isFalse);
+      expect(await notifier.updateTask('nope', title: 'x'), isFalse);
+      expect(store.all.single.title, 'Keep me');
+      expect(
+        await notifier.updateTask(task.id, title: '  Spaced  '),
+        isTrue,
+      );
+      expect(store.all.single.title, 'Spaced');
+    });
+
+    test('updateTask clearDue removes the due date', () async {
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final when = DateTime.now().add(const Duration(days: 1));
+      final task = await notifier.add('Dated', manualDate: when);
+      expect(
+        await notifier.updateTask(task!.id, clearDue: true),
+        isTrue,
+      );
+      expect(store.all.single.dueDate, isNull);
+    });
+
+    test('updateTask due-only edit keeps the title', () async {
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final task = await notifier.add('Same title');
+      final when = DateTime.now().add(const Duration(days: 2));
+      expect(await notifier.updateTask(task!.id, dueDate: when), isTrue);
+      expect(store.all.single.title, 'Same title');
+      expect(store.all.single.dueDate, when);
+    });
+
     test('filteredTasks: today tab, search and sort', () async {
       final c = await _container(store);
       final notifier = c.read(taskListProvider.notifier);

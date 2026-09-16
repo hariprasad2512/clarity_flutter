@@ -51,6 +51,7 @@ dependencies:
   desktop_multi_window: ^0.3.1
   home_widget: ^0.9.4
   workmanager: ^0.10.10
+  url_launcher: ^6.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

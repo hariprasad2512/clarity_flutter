@@ -5,7 +5,9 @@ import '../core/app_store.dart';
 import '../core/date_parser.dart';
 import '../core/task_model.dart';
 import '../desktop/desktop.dart';
+import 'link_text.dart';
 import 'schedule_sheet.dart';
+import 'task_detail_sheet.dart';
 
 /// Detail column: capture bar, search, task list. Mirrors native
 /// `TaskListView` (header + count, capture bar with calendar/clock chips,
@@ -95,23 +97,26 @@ class _TaskListState extends ConsumerState<TaskList> {
                 ),
               ),
               const Spacer(),
-              // Flexible (not fixed) so narrow phones never overflow.
-              Flexible(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: TextField(
-                    controller: _searchCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Search',
-                      prefixIcon: Icon(Icons.search, size: 18),
-                      border: OutlineInputBorder(),
-                      isDense: true,
+              // Desktop-only: the mobile header stays uncluttered (the
+              // drawer + FAB cover navigate/create; search took too much
+              // room on narrow phones).
+              if (isDesktopApp)
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'Search',
+                        prefixIcon: Icon(Icons.search, size: 18),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: (q) =>
+                          ref.read(searchProvider.notifier).set(q),
                     ),
-                    onChanged: (q) =>
-                        ref.read(searchProvider.notifier).set(q),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -264,12 +269,22 @@ class _ScheduleChip extends StatelessWidget {
   }
 }
 
-class _TaskRow extends ConsumerWidget {
+class _TaskRow extends ConsumerStatefulWidget {
   const _TaskRow({required this.task});
   final TodoTask task;
 
+  @override
+  ConsumerState<_TaskRow> createState() => _TaskRowState();
+}
+
+class _TaskRowState extends ConsumerState<_TaskRow> {
+  /// Last link-tap timestamp. Tapping a URL also reaches the tile's tap
+  /// handler (gesture arena), so the sheet open is deferred past the
+  /// link callback — order-independent suppression.
+  DateTime? _linkTap;
+
   Color _dueColor(BuildContext context, DateTime due) {
-    if (task.isCompleted) return Colors.grey;
+    if (widget.task.isCompleted) return Colors.grey;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final day = DateTime(due.year, due.month, due.day);
@@ -278,8 +293,24 @@ class _TaskRow extends ConsumerWidget {
     return Theme.of(context).colorScheme.outline;
   }
 
+  void _onTileTap() {
+    // Defer past any link-tap callback so opening a URL never also
+    // opens the edit sheet.
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      final tapped = _linkTap;
+      if (tapped != null &&
+          DateTime.now().difference(tapped) <
+              const Duration(seconds: 1)) {
+        return;
+      }
+      showTaskDetailSheet(context, widget.task);
+    });
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final task = widget.task;
     // Mobile gets roomier touch targets; desktop keeps dense rows.
     final roomy = !isDesktopApp;
     return Dismissible(
@@ -293,22 +324,35 @@ class _TaskRow extends ConsumerWidget {
       ),
       onDismissed: (_) =>
           ref.read(taskListProvider.notifier).deleteByIds([task.id]),
-      child: InkWell(
-        onTap: () => ref.read(taskListProvider.notifier).toggle(task),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _onTileTap,
         child: Padding(
           padding: EdgeInsets.symmetric(
               horizontal: 20, vertical: roomy ? 14 : 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // The ONLY completion control: the circle. Tapping anywhere
+              // else opens the edit sheet (never toggles).
               Padding(
                 padding: EdgeInsets.only(top: roomy ? 2 : 0),
-                child: Icon(
-                  task.isCompleted
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
-                  color: task.isCompleted ? Colors.grey : Colors.green,
-                  size: roomy ? 28 : 22,
+                child: IconButton(
+                  tooltip: task.isCompleted
+                      ? 'Mark not done'
+                      : 'Mark done',
+                  onPressed: () => ref
+                      .read(taskListProvider.notifier)
+                      .toggle(task),
+                  icon: Icon(
+                    task.isCompleted
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    color: task.isCompleted
+                        ? Colors.grey
+                        : Colors.green,
+                    size: roomy ? 28 : 22,
+                  ),
                 ),
               ),
               SizedBox(width: roomy ? 14 : 12),
@@ -316,8 +360,10 @@ class _TaskRow extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    LinkText(
                       task.title,
+                      onLinkTap: () =>
+                          _linkTap = DateTime.now(),
                       style: TextStyle(
                         decoration: task.isCompleted
                             ? TextDecoration.lineThrough

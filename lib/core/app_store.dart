@@ -251,6 +251,46 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     return true;
   }
 
+  /// Edits title and/or due date (from the task detail sheet). Title is
+  /// plain text — no NLP re-parse, so typing "tomorrow" never moves the
+  /// due date by surprise; dates change only via [dueDate]/[clearDue].
+  /// Returns false when the task is unknown or the title is blank.
+  /// Mirrors toggle's side effects (persist + reschedule + push + widget)
+  /// so edits propagate cross-device through the sync path.
+  Future<bool> updateTask(
+    String id, {
+    String? title,
+    DateTime? dueDate,
+    bool clearDue = false,
+  }) async {
+    final task = _byId(id);
+    if (task == null) return false;
+    if (title != null) {
+      final trimmed = title.trim();
+      if (trimmed.isEmpty) return false;
+      task.title = trimmed;
+    }
+    if (clearDue) {
+      task.dueDate = null;
+    } else if (dueDate != null) {
+      task.dueDate = dueDate;
+    }
+    task.touch();
+    await ref.read(localStoreProvider).put(task);
+    state = [
+      for (final t in state)
+        if (t.id == id) task else t,
+    ];
+    if (task.isCompleted || task.dueDate == null) {
+      await _notifications().cancel(id);
+    } else {
+      await _notifications().schedule(task, snoozeMinutes: _snooze());
+    }
+    _syncSoon();
+    await _refreshWidget();
+    return true;
+  }
+
   TodoTask? _byId(String id) {
     for (final t in state) {
       if (t.id == id) return t;
