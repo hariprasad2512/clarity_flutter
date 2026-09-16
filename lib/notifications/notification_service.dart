@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../core/task_model.dart';
+import 'reminder_cache.dart';
 
 /// All local-notification logic in one place. Port of native
 /// `NotificationManager` (Shared/NotificationManager.swift).
@@ -39,6 +41,16 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin;
   bool _ready = false;
   int _snoozeMinutes = 60;
+
+  /// Last-known Android permission state (null = unknown / non-Android).
+  /// Refreshed by [requestPermission] and [refreshPermissionStatus].
+  /// When exact alarms are denied, [schedule] falls back to inexact so the
+  /// alert still fires (OEM-dependent window) instead of throwing.
+  bool? _notificationsEnabled;
+  bool _canScheduleExact = true;
+
+  bool? get notificationsEnabled => _notificationsEnabled;
+  bool get canScheduleExact => _canScheduleExact;
 
   /// Set by main.dart. Invoked with the task UUID from the payload.
   Future<void> Function(String taskId)? onMarkDone;
@@ -148,14 +160,11 @@ class NotificationService {
   Future<void> requestPermission() async {
     if (!_ready) return;
     try {
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestNotificationsPermission();
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestExactAlarmsPermission();
+      final android =
+          _plugin.resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      await android?.requestNotificationsPermission();
+      await android?.requestExactAlarmsPermission();
       await _plugin
           .resolvePlatformSpecificImplementation<
               IOSFlutterLocalNotificationsPlugin>()
@@ -167,11 +176,32 @@ class NotificationService {
     } catch (_) {
       // Best-effort.
     }
+    await refreshPermissionStatus();
+  }
+
+  /// Re-reads Android notification + exact-alarm state without prompting.
+  /// Safe no-op on other platforms / in tests. Used by Settings UI and
+  /// foreground-resume refresh.
+  Future<void> refreshPermissionStatus() async {
+    if (!_ready) return;
+    try {
+      final android =
+          _plugin.resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return;
+      _notificationsEnabled = await android.areNotificationsEnabled();
+      _canScheduleExact =
+          await android.canScheduleExactNotifications() ?? true;
+    } catch (_) {
+      // Best-effort: keep previous values.
+    }
   }
 
   /// Schedules the due alert. No-op when unsupported, unready, completed,
   /// undated or in the past. Mirrors native `schedule(for:)`.
   /// [snoozeMinutes] bakes the dynamic action title.
+  /// On Android without exact-alarm permission, falls back to inexact
+  /// (fires within an OEM-dependent window) instead of throwing.
   Future<void> schedule(TodoTask task, {int snoozeMinutes = 60}) async {
     if (!_ready || !shouldSchedule(task, DateTime.now())) return;
     try {
@@ -242,9 +272,12 @@ class NotificationService {
             ],
           ),
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: _canScheduleExact
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
         payload: task.id,
       );
+      await _cacheUpsert(task, snoozeMinutes);
     } catch (_) {
       // Best-effort.
     }
@@ -257,6 +290,7 @@ class NotificationService {
     } catch (_) {
       // Best-effort.
     }
+    await _cacheRemove(taskId);
   }
 
   /// Startup reconcile: clear stale system state, then schedule every
@@ -277,10 +311,79 @@ class NotificationService {
         await schedule(task, snoozeMinutes: snoozeMinutes);
       }
     }
+    // Rewrite the prefs mirror to drop stale ids (deleted/completed on
+    // another device). Individual schedule() calls above already upserted,
+    // so this is a prune pass.
+    await _cacheReplaceAll(tasks, snoozeMinutes);
   }
 
-  void _onResponse(NotificationResponse response) {
-    final taskId = response.payload;
+  /// Prefs mirror writes. Best-effort; never throws; keeps the background
+  /// restore worker (no Hive access) able to re-schedule after reboot.
+  Future<void> _cacheUpsert(TodoTask task, int snoozeMinutes) async {
+    try {
+      final due = task.dueDate;
+      if (due == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final current = ReminderCache.decode(
+        prefs.getString(ReminderCache.prefsKey),
+      );
+      final updated = ReminderCache.upsert(
+        current,
+        ReminderEntry(
+          id: task.id,
+          title: task.title,
+          dueMs: due.millisecondsSinceEpoch,
+          snoozeMinutes: snoozeMinutes,
+        ),
+      );
+      await saveReminderCache(updated, prefs);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> _cacheRemove(String taskId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = ReminderCache.decode(
+        prefs.getString(ReminderCache.prefsKey),
+      );
+      await saveReminderCache(ReminderCache.remove(current, taskId), prefs);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> _cacheReplaceAll(
+    Iterable<TodoTask> tasks,
+    int snoozeMinutes,
+  ) async {
+    try {
+      final now = DateTime.now();
+      final entries = <ReminderEntry>[];
+      for (final task in tasks) {
+        final due = task.dueDate;
+        if (due != null &&
+            !task.isCompleted &&
+            due.isAfter(now)) {
+          entries.add(
+            ReminderEntry(
+              id: task.id,
+              title: task.title,
+              dueMs: due.millisecondsSinceEpoch,
+              snoozeMinutes: snoozeMinutes,
+            ),
+          );
+        }
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await saveReminderCache(entries, prefs);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  void _onResponse(NotificationResponse response) {    final taskId = response.payload;
     if (taskId == null || taskId.isEmpty) return;
     switch (response.actionId) {
       case markDoneActionId:

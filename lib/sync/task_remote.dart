@@ -10,6 +10,10 @@ abstract class TaskRemote {
 
   /// All rows for [userId], newest first. Mirrors native pull ordering.
   Future<List<Map<String, dynamic>>> fetchAll(String userId);
+
+  /// Hard-deletes rows by PK. No-op when [ids] is empty. Requires an RLS
+  /// DELETE policy letting users delete their own rows.
+  Future<void> deleteByIds(Set<String> ids);
 }
 
 class SupabaseTaskRemote implements TaskRemote {
@@ -34,5 +38,11 @@ class SupabaseTaskRemote implements TaskRemote {
         .eq('user_id', userId)
         .order('updated_at', ascending: false);
     return List<Map<String, dynamic>>.from(res as List);
+  }
+
+  @override
+  Future<void> deleteByIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    await _client.from(table).delete().inFilter('id', ids.toList());
   }
 }

@@ -9,6 +9,7 @@ import '../core/task_model.dart';
 import '../data/local_store.dart';
 import '../desktop/desktop.dart';
 import '../notifications/notification_service.dart';
+import '../sync/delete_outbox.dart';
 import '../sync/sync_engine.dart';
 import '../widget/widget_service.dart';
 
@@ -185,6 +186,16 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     for (final id in gone) {
       await _notifications().cancel(id);
     }
+    // Queue the hard delete: the sync push phase removes these rows from
+    // the server so the next pull can't resurrect them on any device.
+    // Best-effort — an empty queue simply means "nothing to propagate".
+    try {
+      final queued = await loadDeleteOutbox(ref.read(sharedPrefsProvider));
+      queued.addAll(gone);
+      await saveDeleteOutbox(queued, ref.read(sharedPrefsProvider));
+    } catch (_) {
+      // Best-effort.
+    }
     _syncSoon();
     await _refreshWidget();
   }
@@ -235,6 +246,46 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
         if (t.id == id) task else t,
     ];
     await _notifications().schedule(task, snoozeMinutes: minutes);
+    _syncSoon();
+    await _refreshWidget();
+    return true;
+  }
+
+  /// Edits title and/or due date (from the task detail sheet). Title is
+  /// plain text — no NLP re-parse, so typing "tomorrow" never moves the
+  /// due date by surprise; dates change only via [dueDate]/[clearDue].
+  /// Returns false when the task is unknown or the title is blank.
+  /// Mirrors toggle's side effects (persist + reschedule + push + widget)
+  /// so edits propagate cross-device through the sync path.
+  Future<bool> updateTask(
+    String id, {
+    String? title,
+    DateTime? dueDate,
+    bool clearDue = false,
+  }) async {
+    final task = _byId(id);
+    if (task == null) return false;
+    if (title != null) {
+      final trimmed = title.trim();
+      if (trimmed.isEmpty) return false;
+      task.title = trimmed;
+    }
+    if (clearDue) {
+      task.dueDate = null;
+    } else if (dueDate != null) {
+      task.dueDate = dueDate;
+    }
+    task.touch();
+    await ref.read(localStoreProvider).put(task);
+    state = [
+      for (final t in state)
+        if (t.id == id) task else t,
+    ];
+    if (task.isCompleted || task.dueDate == null) {
+      await _notifications().cancel(id);
+    } else {
+      await _notifications().schedule(task, snoozeMinutes: _snooze());
+    }
     _syncSoon();
     await _refreshWidget();
     return true;
