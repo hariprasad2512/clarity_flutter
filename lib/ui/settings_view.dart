@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -53,6 +56,10 @@ class SettingsView extends ConsumerWidget {
                     color: Theme.of(context).colorScheme.outline,
                   ),
             ),
+            if (!kIsWeb && Platform.isAndroid) ...[
+              const SizedBox(height: 12),
+              const _AndroidNotificationStatus(),
+            ],
             const SizedBox(height: 16),
             Text('Capture', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
@@ -97,6 +104,80 @@ class SettingsView extends ConsumerWidget {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Android 13+ notification health (same-account multi-device parity).
+///
+/// Shows POST_NOTIFICATIONS + exact-alarm state from
+/// `NotificationService.refreshPermissionStatus`. Exact denied is not
+/// fatal: scheduling falls back to inexact (OEM-dependent window).
+/// Hidden on desktop/web/tests via the call-site guard.
+class _AndroidNotificationStatus extends ConsumerStatefulWidget {
+  const _AndroidNotificationStatus();
+
+  @override
+  ConsumerState<_AndroidNotificationStatus> createState() =>
+      _AndroidNotificationStatusState();
+}
+
+class _AndroidNotificationStatusState
+    extends ConsumerState<_AndroidNotificationStatus> {
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future(() async {
+      await ref.read(notificationServiceProvider).refreshPermissionStatus();
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _request() async {
+    setState(() => _refreshing = true);
+    try {
+      await ref.read(notificationServiceProvider).requestPermission();
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final svc = ref.watch(notificationServiceProvider);
+    final enabled = svc.notificationsEnabled;
+    final canExact = svc.canScheduleExact;
+    final outline = Theme.of(context).colorScheme.outline;
+    final small = Theme.of(context).textTheme.bodySmall?.copyWith(color: outline);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Device alerts', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(
+          'Notifications: ${enabled == null ? 'unknown' : enabled ? 'on' : 'off'} • '
+          'Exact alarms: ${canExact ? 'allowed' : 'denied (inexact fallback)'}',
+          style: small,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Both devices fire locally after syncing the same Google account. '
+          'If exact alarms are denied, alerts may arrive late. '
+          'For Samsung/Xiaomi/Oppo also allow “Alarms & reminders” and unrestricted battery.',
+          style: small,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            OutlinedButton(
+              onPressed: _refreshing ? null : _request,
+              child: Text(_refreshing ? 'Requesting…' : 'Enable alerts'),
+            ),
+          ],
         ),
       ],
     );

@@ -20,6 +20,7 @@ import 'desktop/quick_add_host.dart';
 import 'desktop/quick_add_window.dart';
 import 'desktop/tray_service.dart';
 import 'notifications/notification_service.dart';
+import 'sync/delete_outbox.dart';
 import 'sync/sync_engine.dart';
 import 'sync/task_remote.dart';
 import 'ui/app_shell.dart';
@@ -100,30 +101,42 @@ Future<void> main(List<String> args) async {
   }
 
   if (AppConfig.isConfigured) {
+    // Shared post-write refresh: persist-side effects after any sync
+    // write (puts or delete-prunes) — UI, notifications, widgets.
+    Future<void> afterSyncWrite() async {
+      final notifier = container.read(taskListProvider.notifier);
+      notifier.refreshFromStore();
+      await notifications.rescheduleAll(
+        container.read(taskListProvider),
+        snoozeMinutes: container.read(settingsProvider).snoozeMinutes,
+      );
+      await container
+          .read(widgetServiceProvider)
+          .refresh(container.read(taskListProvider));
+      await reconcileWidgetStrikes(
+        notifier.completeById,
+        after: () => container
+            .read(widgetServiceProvider)
+            .refresh(container.read(taskListProvider)),
+      );
+    }
+
     final engine = SyncEngine(
       remote: SupabaseTaskRemote(),
       readLocal: () async => store.all,
       writeLocal: (tasks) async {
-        final notifier = container.read(taskListProvider.notifier);
         for (final t in tasks) {
           await store.put(t);
         }
-        notifier.refreshFromStore();
-        await notifications.rescheduleAll(
-          container.read(taskListProvider),
-          snoozeMinutes: container.read(settingsProvider).snoozeMinutes,
-        );
-        await container
-            .read(widgetServiceProvider)
-            .refresh(container.read(taskListProvider));
-        await reconcileWidgetStrikes(
-          notifier.completeById,
-          after: () => container
-              .read(widgetServiceProvider)
-              .refresh(container.read(taskListProvider)),
-        );
+        await afterSyncWrite();
       },
       readUserId: () => Supabase.instance.client.auth.currentUser?.id,
+      readPendingDeletes: loadDeleteOutbox,
+      writePendingDeletes: saveDeleteOutbox,
+      deleteLocal: (ids) async {
+        await store.deleteByIds(ids);
+        await afterSyncWrite();
+      },
     );
     container.updateOverrides([
       localStoreProvider.overrideWithValue(store),
@@ -179,9 +192,18 @@ class ClarityApp extends StatelessWidget {
   }
 }
 
+/// Foreground pull cadence shared by all platforms (was 60s).
+/// 15s keeps two devices on the same account within ~15–20s of each other
+/// while open, in either direction. Overlap-safe via SyncEngine's busy
+/// guard; error pacing via [SyncBackoff].
+const syncPollInterval = Duration(seconds: 15);
+
+/// Single coalesced fast retry after a failed poll (reconnect recovery).
+const syncRetryDelay = Duration(seconds: 5);
+
 /// One-time startup wiring that needs a live container: notification action
 /// callbacks, permission request, alarm reconcile, auth-state reactions,
-/// foreground-resume + 60s sync triggers. Mirrors native `ClarityApp.init`
+/// foreground-resume + 15s/backoff sync triggers. Mirrors native `ClarityApp.init`
 /// + `ContentView.onAppear` + `SyncEngine` timers.
 class _Bootstrap extends ConsumerStatefulWidget {
   const _Bootstrap({required this.child});
@@ -195,6 +217,9 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     with WidgetsBindingObserver {
   bool _wired = false;
   Timer? _syncTimer;
+  Timer? _syncRetryTimer;
+  final SyncBackoff _backoff = SyncBackoff();
+  WindowListener? _windowListener;
   StreamSubscription<AuthState>? _authSub;
   StreamSubscription<Uri?>? _widgetSub;
 
@@ -208,6 +233,16 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
+    _syncRetryTimer?.cancel();
+    final listener = _windowListener;
+    _windowListener = null;
+    if (listener != null) {
+      try {
+        windowManager.removeListener(listener);
+      } catch (_) {
+        // Best-effort.
+      }
+    }
     _authSub?.cancel();
     _widgetSub?.cancel();
     super.dispose();
@@ -215,11 +250,28 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Foreground pull (native: onReceive foreground notification) plus
-    // widget outbox reconcile.
-    if (state == AppLifecycleState.resumed) {
-      ref.read(syncEngineProvider)?.syncNow();
-      reconcileWidgetStrikesRef(ref);
+    final engine = ref.read(syncEngineProvider);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Foreground pull (native: onReceive foreground notification)
+        // plus widget outbox reconcile. Permission refresh keeps the
+        // exact-alarm fallback + Settings status accurate (user may flip
+        // it in Settings).
+        engine?.syncNow();
+        ref.read(notificationServiceProvider).refreshPermissionStatus();
+        reconcileWidgetStrikesRef(ref);
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+        // Best-effort flush of local edits before the OS suspends us.
+        // Without this the 1.2s debounced push may never run on
+        // edit-then-background/kill, and the other device sees nothing
+        // until this app reopens. Fire-and-forget on purpose.
+        if (engine != null) {
+          unawaited(engine.syncNow(pushOnly: true));
+        }
+      case AppLifecycleState.detached:
+        break;
     }
   }
 
@@ -274,15 +326,40 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
               .set('Sign-in sync error: ${_shortError(e)}');
         },
       );
-      // Periodic pull (native: 60s timer).
-      _syncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-        engine.syncNow();
-      });
+      // Foreground pull (was 60s): 15s shared cadence so phone ↔ macOS
+      // stay within ~15–20s in either direction while open. Backoff +
+      // single retry keep offline flakiness from hammering or stalling.
+      _syncTimer = Timer.periodic(
+        syncPollInterval,
+        (_) => _pollOnce(engine),
+      );
+    });
+  }
+
+  /// One paced poll tick: backoff-gated full pull, result noted, single
+  /// coalesced fast retry scheduled on failure.
+  void _pollOnce(SyncEngine engine) {
+    if (!_backoff.shouldSyncNow()) return;
+    unawaited(engine.syncNow().then((s) {
+      if (!mounted) return;
+      _backoff.noteResult(s);
+      if (s == SyncStatus.error) _scheduleSyncRetry(engine);
+    }));
+  }
+
+  /// Single-shot reconnect retry. Coalesced: at most one pending.
+  void _scheduleSyncRetry(SyncEngine engine) {
+    if (_syncRetryTimer != null) return;
+    _syncRetryTimer = Timer(syncRetryDelay, () {
+      _syncRetryTimer = null;
+      if (!mounted) return;
+      _pollOnce(engine);
     });
   }
 
   /// Desktop integrations: floating Quick Add (hotkey/tray/buttons),
-  /// tray (hide-on-close, Quit). No-ops on mobile/web/tests via guards.
+  /// tray (hide-on-close, Quit), window focus → pull / blur → push flush.
+  /// No-ops on mobile/web/tests via guards.
   Future<void> _initDesktop() async {
     final tray = ref.read(trayServiceProvider);
     final summon = ref.read(quickAddHostProvider).summon;
@@ -299,6 +376,23 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       },
       quit: () => tray.quit(),
     );
+    // Pull-on-focus: clicking back into the window after editing on the
+    // phone pulls immediately instead of waiting for the next poll tick.
+    // Blur flushes local edits — covers hide-to-tray (hide triggers a
+    // blur but no app-lifecycle event on desktop).
+    if (isDesktopApp && _windowListener == null) {
+      final listener = _SyncWindowListener(
+        onFocus: () => ref.read(syncEngineProvider)?.syncNow(),
+        onBlur: () =>
+            ref.read(syncEngineProvider)?.syncNow(pushOnly: true),
+      );
+      try {
+        windowManager.addListener(listener);
+        _windowListener = listener;
+      } catch (_) {
+        // Best-effort (tests / headless).
+      }
+    }
   }
 
   /// Widget taps land here as deep links (`widgetClicked`): circle taps
@@ -353,6 +447,32 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// Window focus → full pull, blur → push-only flush. Desktop-only;
+/// registered in `_initDesktop` behind `isDesktopApp` (false in tests).
+class _SyncWindowListener extends WindowListener {
+  _SyncWindowListener({required this.onFocus, required this.onBlur});
+  final void Function() onFocus;
+  final void Function() onBlur;
+
+  @override
+  void onWindowFocus() {
+    try {
+      onFocus();
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  @override
+  void onWindowBlur() {
+    try {
+      onBlur();
+    } catch (_) {
+      // Best-effort.
+    }
+  }
 }
 
 /// One-line error summary without leaking tokens or URLs.

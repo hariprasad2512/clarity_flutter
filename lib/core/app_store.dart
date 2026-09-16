@@ -9,6 +9,7 @@ import '../core/task_model.dart';
 import '../data/local_store.dart';
 import '../desktop/desktop.dart';
 import '../notifications/notification_service.dart';
+import '../sync/delete_outbox.dart';
 import '../sync/sync_engine.dart';
 import '../widget/widget_service.dart';
 
@@ -184,6 +185,16 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     state = state.where((t) => !gone.contains(t.id)).toList();
     for (final id in gone) {
       await _notifications().cancel(id);
+    }
+    // Queue the hard delete: the sync push phase removes these rows from
+    // the server so the next pull can't resurrect them on any device.
+    // Best-effort — an empty queue simply means "nothing to propagate".
+    try {
+      final queued = await loadDeleteOutbox(ref.read(sharedPrefsProvider));
+      queued.addAll(gone);
+      await saveDeleteOutbox(queued, ref.read(sharedPrefsProvider));
+    } catch (_) {
+      // Best-effort.
     }
     _syncSoon();
     await _refreshWidget();

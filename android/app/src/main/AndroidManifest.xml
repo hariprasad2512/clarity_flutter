@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Phase 2 local notifications: runtime prompt (API 33+), exact alarms
-         for due-time firing, reboot reconcile happens on next app start. -->
+         for due-time firing. Reboot/update restore via
+         ScheduledNotificationBootReceiver (plugin persists exact alarms);
+         prefs-cache restore via Workmanager covers edge cases. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
@@ -81,6 +83,25 @@
                 android:exported="true">
                 <intent-filter>
                     <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+                </intent-filter>
+            </receiver>
+            <!-- Local notifications: action taps + exact-alarm persistence.
+                 Boot receiver re-creates OS alarms after reboot/update;
+                 the plugin handles the reschedule internally. -->
+            <receiver
+                android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+                android:exported="false" />
+            <receiver
+                android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+                android:exported="false" />
+            <receiver
+                android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+                android:exported="false">
+                <intent-filter>
+                    <action android:name="android.intent.action.BOOT_COMPLETED" />
+                    <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                    <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                    <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
                 </intent-filter>
             </receiver>
         </application>
