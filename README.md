@@ -64,11 +64,9 @@ runs fully otherwise. macOS and Android are the primary verified platforms.
 
 ## 📸 Screenshots
 
-> Drop captures into `docs/screenshots/` — referenced here once added.
-
 | Today (desktop) | Edit sheet | Android |
 |---|---|---|
-| `docs/screenshots/today.png` | `docs/screenshots/edit-sheet.png` | `docs/screenshots/android.png` |
+| <img src="docs/screenshots/today.png" alt="Today desktop view" width="460"> | <img src="docs/screenshots/edit-sheet.png" alt="Edit task sheet" width="460"> | <img src="docs/screenshots/android.png" alt="Android app view" width="220"> |
 
 ## 🛠️ Tech stack
 
