@@ -1,14 +1,12 @@
 # Clarity Flutter
 
-[![License: MIT][badge-license]][LICENSE]
+![License][badge-license]
 [![Flutter][badge-flutter]](https://docs.flutter.dev)
-[![CI][badge-ci]](https://github.com/hariprasad2512/clarity_flutter/actions/workflows/ci.yml)
 [![Platforms][badge-platforms]](#-platform-support)
 
-[badge-license]: https://img.shields.io/badge/License-MIT-green.svg
-[badge-flutter]: https://img.shields.io/badge/Flutter-3.47-blue.svg
-[badge-ci]: https://github.com/hariprasad2512/clarity_flutter/actions/workflows/ci.yml/badge.svg
-[badge-platforms]: https://img.shields.io/badge/platforms-macOS%20%7C%20Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-lightgrey.svg
+[badge-license]: https://img.shields.io/github/license/hariprasad2512/clarity_flutter?style=flat-square&color=2ea44f
+[badge-flutter]: https://img.shields.io/badge/Flutter-3.47-54c5f8?logo=flutter&logoColor=white&style=flat-square
+[badge-platforms]: https://img.shields.io/badge/platforms-macOS%20%7C%20Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-6b7280?style=flat-square
 
 A minimal, open-source todo app. **Capture fast, track simply, sync everywhere.**
 
@@ -20,33 +18,20 @@ last-write-wins on `updated_at`).
 
 ## ✨ Features
 
-- **Clean workspace** — sidebar (Today / Inbox / Done with counts) + focused
-  list, adaptive wide (≥760px) and narrow layouts, overdue highlighting,
-  dark-mode support.
-- **Natural-language dates** — `"Pay rent tomorrow at 5pm"`, weekdays,
-  `tonight`, `weekend`, `in 2 hours`; detected date words are stripped
-  Todoist-style.
-- **Scheduling** — month calendar plus Today / Tomorrow / Weekend presets;
-  manual picks override auto-parse.
-- **Task detail sheet** — tap a tile to edit the title, due day and time, or
-  pick a quick remind preset (In 1 hour, Tomorrow 9 AM, Next week, Clear).
-  The circle is the only complete control; swipe left deletes for real.
-- **Clickable links** — URLs in titles render blue and open in your browser,
-  even on completed tasks.
-- **Smart actionable alerts** — the task title is the notification, with
-  **Mark Done** and **Remind me later** buttons (delay configurable in
-  Settings, default 1 hour). Each device schedules its own alerts locally,
-  so everywhere you're signed in reminds you — no push server needed.
-- **Live two-way sync** — devices on the same Google account converge within
-  ~15–20s in either direction (15s poll with backoff, pull on resume and
-  desktop window focus, push flush on background). Deletes propagate as hard
-  deletes; conflicts resolve last-write-wins.
-- **Home-screen widgets (Android)** — S/M/L sizes with list switcher,
-  tap-to-complete, Quick Add tile, and periodic refresh.
-- **Desktop extras** — floating Spotlight-style Quick Add, global hotkey,
-  menu-bar/tray presence with hide-on-close, launch at login.
-- **Privacy-first default** — everything works offline in a local Hive
-  store. No account, no tracking until you sign in.
+- **Focused workspace** — Today, Inbox, and Done views with counts, responsive
+  layouts, overdue highlighting, dark mode, links, and swipe-to-delete.
+- **Natural dates + scheduling** — parse phrases like `tomorrow at 5pm`, then
+  refine them with a calendar or Today / Tomorrow / Weekend presets.
+- **Quick task editing** — change titles, dates, times, or reminder presets in
+  a focused detail sheet.
+- **Actionable local alerts** — mark tasks done or snooze them directly from
+  notifications; every signed-in device schedules its own reminders.
+- **Live two-way sync** — Google sign-in and Supabase keep devices aligned
+  offline-first, with last-write-wins conflict resolution.
+- **Widgets + desktop extras** — Android home-screen widgets, Quick Add, global
+  hotkeys, tray presence, and launch-at-login support.
+- **Privacy-first by default** — local Hive storage works fully offline, with
+  no account or tracking required.
 
 ## 📊 Platform support
 
@@ -69,6 +54,8 @@ runs fully otherwise. macOS and Android are the primary verified platforms.
 | <img src="docs/screenshots/today.png" alt="Today desktop view" width="460"> | <img src="docs/screenshots/edit-sheet.png" alt="Edit task sheet" width="460"> | <img src="docs/screenshots/android.png" alt="Android app view" width="220"> |
 
 ## 🛠️ Tech stack
+
+[![Flutter][badge-flutter]](https://docs.flutter.dev) [![Dart](https://img.shields.io/badge/Dart-0175C2?logo=dart&logoColor=white&style=flat-square)](https://dart.dev) [![Riverpod](https://img.shields.io/badge/Riverpod-2F80ED?style=flat-square)](https://riverpod.dev) [![Hive](https://img.shields.io/badge/Hive-F6C343?style=flat-square)](https://pub.dev/packages/hive_ce) [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?logo=supabase&logoColor=white&style=flat-square)](https://supabase.com)
 
 | Layer | Choice |
 |---|---|
