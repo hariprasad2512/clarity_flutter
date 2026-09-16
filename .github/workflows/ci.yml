@@ -1,0 +1,26 @@
+# CI: analyze + tests on every push and PR.
+# Tests run local-only (Hive temp dirs, SharedPreferences mocks) — no
+# Supabase secrets or devices needed.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop-ai]
+  pull_request:
+    branches: [main, develop-ai]
+
+jobs:
+  analyze-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.4"
+
+      - run: flutter pub get
+      - run: dart analyze
+      - run: flutter test
