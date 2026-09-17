@@ -47,6 +47,23 @@ last-write-wins on `updated_at`).
 ¹ Web has no scheduler backend in `flutter_local_notifications`; the app
 runs fully otherwise. macOS and Android are the primary verified platforms.
 
+## 📦 Install
+
+### macOS (Homebrew)
+
+```sh
+brew tap hariprasad2512/clarity
+brew install --cask hariprasad2512/clarity/clarity-flutter
+```
+
+First launch needs a one-time approval (unsigned build, no paid Apple
+Developer ID): Finder → right-click Clarity.app → Open → Open. It then
+launches normally forever. Updates: `brew upgrade --cask clarity-flutter`.
+
+> The tap also ships the native Swift app as `clarity`;
+> `clarity-flutter` is this repo's cross-platform build. Prefer building
+> from source? See [Getting started](#-getting-started).
+
 ## 📸 Screenshots
 
 | Today (desktop) | Edit sheet | Android |
