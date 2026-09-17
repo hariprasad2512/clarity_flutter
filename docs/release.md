@@ -55,10 +55,12 @@ No paid Apple Developer ID → builds are **unsigned**. Gatekeeper will quaranti
    cp homebrew/Casks/clarity.rb <tap-repo>/Casks/clarity.rb
    # set version + real sha256 from the GitHub Release, commit, push
    brew tap hariprasad2512/clarity
-   brew install --cask --no-quarantine clarity
+   brew install --cask hariprasad2512/clarity/clarity-flutter
    ```
-4. Per release: update `version` + `sha256` in the tap's `clarity.rb`.
-5. Users on first launch: right-click → Open, or `xattr -d com.apple.quarantine /Applications/Clarity.app`.
+4. Per release: update `version` + `sha256` in the tap's `clarity-flutter.rb`.
+5. Users on first launch: Finder → right-click Clarity.app → Open → Open
+   (one-time Gatekeeper approval for the unsigned build; then launches
+   normally). CLI equivalent: `xattr -d com.apple.quarantine /Applications/Clarity.app`.
 6. Future path to official `homebrew-cask` requires a paid Developer ID (signed + notarized), notable usage, and upstream review.
 
 ## Quick reference
