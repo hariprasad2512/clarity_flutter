@@ -1,0 +1,183 @@
+name: Release
+
+# Builds signed Android AAB + unsigned macOS ZIP on version tags (v*),
+# attaches both to the GitHub Release. macOS ZIP feeds the personal
+# Homebrew tap; AAB is uploaded to Play Console (manual for v1).
+#
+# Required secrets (repo Settings → Secrets → Actions):
+#   ANDROID_KEYSTORE_BASE64 — base64 of android/clarity-release.jks
+#   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+#   SUPABASE_URL, SUPABASE_ANON_KEY, GOOGLE_WEB_CLIENT_ID
+#   (optional) GOOGLE_IOS_CLIENT_ID, GOOGLE_SERVICES_JSON (base64)
+# Missing secrets degrade gracefully: .env falls back to .env.example
+# (local-only build) and Android falls back to debug keys (NOT for Play).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: stable
+
+jobs:
+  checks:
+    name: Analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: dart analyze
+      - run: flutter test
+
+  build-android:
+    name: Android AAB
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+
+      - name: Restore .env from secrets (fallback to example)
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.SUPABASE_URL }}" ]; then
+            {
+              echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}"
+              echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}"
+              echo "GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}"
+              echo "GOOGLE_IOS_CLIENT_ID=${{ secrets.GOOGLE_IOS_CLIENT_ID }}"
+              echo "SNOOZE_MINUTES_DEFAULT=60"
+              echo "OFFLINE_MODE=false"
+            } > .env
+            echo ".env restored from secrets."
+          else
+            cp .env.example .env
+            echo "::warning::SUPABASE_URL secret missing — building local-only AAB."
+          fi
+
+      - name: Restore Android keystore (optional, warns if missing)
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/clarity-release.jks
+            {
+              echo "storeFile=../clarity-release.jks"
+              echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}"
+              echo "keyAlias=${{ secrets.KEY_ALIAS }}"
+              echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+            } > android/key.properties
+            echo "Release signing configured."
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 missing — AAB will use debug keys (not for Play)."
+          fi
+
+      - name: Restore google-services.json (optional)
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
+            echo "google-services.json restored."
+          else
+            echo "No GOOGLE_SERVICES_JSON secret — skipping (OK if Android Google sign-in is OAuth-only)."
+          fi
+
+      - name: Build app bundle
+        run: flutter build appbundle --release --dart-define-from-file=.env
+
+      - name: Rename AAB with version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then VERSION="dev"; fi
+          mkdir -p dist
+          cp build/app/outputs/bundle/release/app-release.aab "dist/Clarity-${VERSION}-android.aab"
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: dist/Clarity-*-android.aab
+
+  build-macos:
+    name: macOS ZIP (unsigned)
+    runs-on: macos-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+
+      - name: Restore .env from secrets (fallback to example)
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.SUPABASE_URL }}" ]; then
+            {
+              echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}"
+              echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}"
+              echo "GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}"
+              echo "GOOGLE_IOS_CLIENT_ID=${{ secrets.GOOGLE_IOS_CLIENT_ID }}"
+              echo "SNOOZE_MINUTES_DEFAULT=60"
+              echo "OFFLINE_MODE=false"
+            } > .env
+            echo ".env restored from secrets."
+          else
+            cp .env.example .env
+            echo "::warning::SUPABASE_URL secret missing — building local-only macOS app."
+          fi
+
+      - name: Build macOS release (unsigned, ad-hoc)
+        run: flutter build macos --release --dart-define-from-file=.env
+
+      - name: Package ZIP + checksum
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then VERSION="dev"; fi
+          mkdir -p dist
+          ditto -c -k --keepParent \
+            build/macos/Build/Products/Release/Clarity.app \
+            "dist/Clarity-${VERSION}-macos.zip"
+          shasum -a 256 "dist/Clarity-${VERSION}-macos.zip" | tee "dist/Clarity-${VERSION}-macos.sha256"
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: |
+            dist/Clarity-*-macos.zip
+            dist/Clarity-*-macos.sha256
+
+  release:
+    name: Attach to GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-android, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: ls -lR artifacts && mkdir -p dist && find artifacts -type f -exec cp {} dist/ \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

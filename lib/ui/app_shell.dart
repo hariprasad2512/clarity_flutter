@@ -7,6 +7,7 @@ import '../core/app_store.dart';
 import '../desktop/desktop.dart';
 import '../desktop/quick_add_host.dart';
 import 'auth_view.dart';
+import 'clarity_logo.dart';
 import 'settings_view.dart';
 import 'sidebar.dart';
 import 'task_composer_sheet.dart';
@@ -79,7 +80,16 @@ class _NarrowLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Clarity'),
+        // Mark lives in the title so the auto drawer hamburger (leading)
+        // is preserved.
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClarityMark(size: 24),
+            SizedBox(width: 8),
+            Text('Clarity'),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Settings',

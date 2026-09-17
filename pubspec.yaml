@@ -76,7 +76,10 @@ flutter:
 
   # Tray icons (Phase 4). macOS uses the template pair; Windows the .ico;
   # Linux the 22px PNG. Loaded via rootBundle → temp file at runtime.
+  # Brand mark (green circle + check). Regenerate with
+  # `python3 tool/generate_logo_assets.py` after any logo tweak.
   assets:
+    - assets/logo/clarity_mark.png
     - assets/tray/tray_icon.png
     - assets/tray/tray_icon@2x.png
     - assets/tray/tray_icon_color@2x.png

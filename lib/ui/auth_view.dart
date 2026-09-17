@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/auth_service.dart';
 import '../core/app_config.dart';
 import '../core/app_store.dart';
+import 'clarity_logo.dart';
 
 /// Login gate. Mirrors native `AuthView`: Google sign-in first, offline
 /// escape hatch second. When Supabase is unconfigured (fresh clones, CI,
@@ -58,7 +59,7 @@ class _AuthViewState extends ConsumerState<AuthView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle, size: 64, color: Colors.green),
+            const ClarityMark(size: 96),
             const SizedBox(height: 8),
             Text(
               'Clarity',

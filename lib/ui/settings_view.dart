@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_store.dart';
 import '../desktop/desktop.dart';
 import '../desktop/hotkey_service.dart';
+import 'clarity_logo.dart';
 
 /// Native Settings window equivalent (⌘,). Home of the "Remind me later"
 /// delay. Mirrors native `SettingsView`.
@@ -23,7 +24,13 @@ class SettingsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     return AlertDialog(
-      title: const Text('Settings'),
+      title: const Row(
+        children: [
+          ClarityMark(size: 28),
+          SizedBox(width: 10),
+          Text('Settings'),
+        ],
+      ),
       content: SizedBox(
         width: 360,
         child: Column(
