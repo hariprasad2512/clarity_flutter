@@ -42,10 +42,39 @@ class _AuthViewState extends ConsumerState<AuthView> {
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
-      if (mounted) setState(() => _error = 'Sign-in failed: $e');
+      if (mounted) setState(() => _error = _friendlySignInError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Translates raw `google_sign_in` / network failures into actionable text.
+  ///
+  /// Play-signed builds most commonly fail with
+  /// `GoogleSignInException(canceled, [16] Account reauth failed)` when the
+  /// final Play App Signing SHA-1 is not registered as an Android OAuth
+  /// client in Google Cloud Console. That looks like a user-cancel but is a
+  /// server-side config mismatch — surface it as such instead of the raw
+  /// exception.
+  String _friendlySignInError(Object e) {
+    final raw = e.toString();
+    final lower = raw.toLowerCase();
+    final isReauthFailure = lower.contains('reauth failed') ||
+        lower.contains('[16]') ||
+        lower.contains('sign_in_failed') ||
+        lower.contains('api: 16');
+    if (isReauthFailure) {
+      return 'Google sign-in blocked: this build\'s Android signing key (SHA-1) '
+          'is not registered for com.harry.Clarity in Google Cloud Console. '
+          'Add the Play App Signing SHA-1 as an Android OAuth client, then retry. ($raw)';
+    }
+    if (lower.contains('canceled') && lower.contains('googlesignin')) {
+      return 'Sign-in was cancelled. Tap “Sign in with Google” to try again.';
+    }
+    if (lower.contains('network') || lower.contains('failed to connect')) {
+      return 'No network connection. Check internet and try again. ($raw)';
+    }
+    return 'Sign-in failed: $raw';
   }
 
   @override
