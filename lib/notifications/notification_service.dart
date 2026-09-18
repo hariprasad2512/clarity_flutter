@@ -157,8 +157,12 @@ class NotificationService {
     }
   }
 
-  Future<void> requestPermission() async {
-    if (!_ready) return;
+  /// Requests notification + exact-alarm permission, then refreshes status.
+  /// Returns true when notifications are enabled afterwards. Never throws:
+  /// unready plugin or denied permissions yield false so the Settings UI can
+  /// show a SnackBar / open system settings instead of appearing dead.
+  Future<bool> requestPermission() async {
+    if (!_ready) return false;
     try {
       final android =
           _plugin.resolvePlatformSpecificImplementation<
@@ -173,6 +177,22 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
               MacOSFlutterLocalNotificationsPlugin>()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+    } catch (_) {
+      // Best-effort.
+    }
+    await refreshPermissionStatus();
+    return _notificationsEnabled ?? false;
+  }
+
+  /// Re-opens the system "Alarms & reminders" screen when exact alarms are
+  /// still denied after [requestPermission]. No-op when unready.
+  Future<void> openExactAlarmSettings() async {
+    if (!_ready) return;
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestExactAlarmsPermission();
     } catch (_) {
       // Best-effort.
     }

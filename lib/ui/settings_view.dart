@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/app_store.dart';
 import '../desktop/desktop.dart';
-import '../desktop/hotkey_service.dart';
 import 'clarity_logo.dart';
 
 /// Native Settings window equivalent (⌘,). Home of the "Remind me later"
@@ -57,27 +56,11 @@ class SettingsView extends ConsumerWidget {
               },
             ),
             const SizedBox(height: 6),
-            Text(
-              'Tapping "Remind me later" on a due alert moves the task out by this long.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-            ),
             if (!kIsWeb && Platform.isAndroid) ...[
               const SizedBox(height: 12),
               const _AndroidNotificationStatus(),
             ],
             const SizedBox(height: 16),
-            Text('Capture', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              isDesktopApp
-                  ? 'Press ${HotkeyService.label.replaceFirst('Quick Add  ', '')} anywhere to capture, or use the Quick Add button and the menu-bar icon.'
-                  : 'Tap + to capture a task. Title, date and time live in the composer.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-            ),
             if (isDesktopApp) ...[
               const SizedBox(height: 16),
               Text('System',
@@ -145,9 +128,34 @@ class _AndroidNotificationStatusState
   }
 
   Future<void> _request() async {
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _refreshing = true);
     try {
-      await ref.read(notificationServiceProvider).requestPermission();
+      final svc = ref.read(notificationServiceProvider);
+      final granted = await svc.requestPermission();
+      if (!mounted) return;
+      if (!granted) {
+        messenger.showSnackBar(
+          const SnackBar(
+              content: Text('Notifications still off — allow them in system settings.')),
+        );
+        return;
+      }
+      if (!svc.canScheduleExact) {
+        await svc.openExactAlarmSettings();
+        if (!mounted) return;
+        await svc.refreshPermissionStatus();
+        messenger.showSnackBar(
+          SnackBar(
+              content: Text(svc.canScheduleExact
+                  ? 'Alerts enabled.'
+                  : 'Alerts on, exact timing denied — opened system settings.')),
+        );
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Alerts enabled.')),
+      );
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -167,14 +175,7 @@ class _AndroidNotificationStatusState
         const SizedBox(height: 4),
         Text(
           'Notifications: ${enabled == null ? 'unknown' : enabled ? 'on' : 'off'} • '
-          'Exact alarms: ${canExact ? 'allowed' : 'denied (inexact fallback)'}',
-          style: small,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Both devices fire locally after syncing the same Google account. '
-          'If exact alarms are denied, alerts may arrive late. '
-          'For Samsung/Xiaomi/Oppo also allow “Alarms & reminders” and unrestricted battery.',
+          'Exact alarms: ${canExact ? 'allowed' : 'denied'}',
           style: small,
         ),
         const SizedBox(height: 8),
