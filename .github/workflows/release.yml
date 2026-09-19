@@ -215,7 +215,7 @@ jobs:
           powershell -Command "Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath \"dist/Clarity-${VERSION}-windows.zip\" -Force"
           # Setup wizard via Inno Setup.
           choco install innosetup --no-progress -y
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "installer/windows/clarity.iss" "/DAppVersion=${VERSION}"
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/windows/clarity.iss /DAppVersion=${VERSION}
           (cd dist && sha256sum "Clarity-${VERSION}-windows-setup.exe" "Clarity-${VERSION}-windows.zip" | tee "Clarity-${VERSION}-windows.sha256")
           ls -lh dist/
 
