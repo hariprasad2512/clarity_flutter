@@ -15,11 +15,14 @@
 #ifndef AppVersion
   #define AppVersion "1.0.1"
 #endif
+#ifndef OutputDir
+  #define OutputDir "..\..\dist"
+#endif
 #define MyAppPublisher "Clarity"
 #define MyAppURL "https://github.com/anomalyco/clarity_flutter"
 
 [Setup]
-AppId={{8E2B4B6A-1C3A-4E5F-9A7B-CLARITYWIN01}
+AppId={{8E2B4B6A-1C3A-4E5F-9A7B-A1B2C3D4E5F6}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
 AppVerName={#MyAppName} {#AppVersion}
@@ -39,7 +42,7 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=..\..\dist
+OutputDir={#OutputDir}
 OutputBaseFilename=Clarity-{#AppVersion}-windows-setup
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

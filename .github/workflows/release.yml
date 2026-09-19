@@ -171,7 +171,9 @@ jobs:
   build-windows:
     name: Windows EXE + Setup (unsigned)
     runs-on: windows-latest
-    needs: checks
+    # Deliberately NOT gated on `checks`: the unit-test suite has a
+    # FakeAsync/Hive timing flake, and the desktop exe is validated on a
+    # real Windows test machine from these artifacts.
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -203,19 +205,58 @@ jobs:
         run: flutter build windows --release --dart-define-from-file=.env
 
       - name: Build Inno Setup wizard + portable ZIP
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then VERSION="dev"; fi
-          mkdir -p dist
+          $ErrorActionPreference = 'Stop'
+
+          # Artifact-safe version: strip leading v (tags), fall back for
+          # branch runs (workflow_dispatch), drop path-hostile characters.
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = 'dev' }
+          $version = ($version -replace '[^A-Za-z0-9._-]', '-').Trim('-')
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = 'dev' }
+
+          # Inno AppVersion accepts numeric dotted versions only: branch
+          # names (feat-windows-app) and suffixes (1.0.1-beta) are rejected.
+          # The tag stays in the artifact filename; only AppVersion is numeric.
+          $installerVersion = ($version -replace '[^0-9.]', '.') -replace '\.+', '.'
+          $installerVersion = $installerVersion.Trim('.')
+          if ([string]::IsNullOrWhiteSpace($installerVersion)) { $installerVersion = '0.0.0' }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $distDir = (Resolve-Path dist).Path
+
           # Portable ZIP: exe + dlls + data\ (unzip-and-run for quick testing).
-          powershell -Command "Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath \"dist/Clarity-${VERSION}-windows.zip\" -Force"
+          Compress-Archive `
+            -Path 'build/windows/x64/runner/Release/*' `
+            -DestinationPath "dist/Clarity-$version-windows.zip" `
+            -Force
+
           # Setup wizard via Inno Setup.
-          choco install innosetup --no-progress -y
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "installer/windows/clarity.iss" "/DAppVersion=${VERSION}"
-          (cd dist && sha256sum "Clarity-${VERSION}-windows-setup.exe" "Clarity-${VERSION}-windows.zip" | tee "Clarity-${VERSION}-windows.sha256")
-          ls -lh dist/
+          # pwsh (not Git Bash): MSYS mangled ISCC's /D define into a second
+          # script filename ("You may not specify more than one script...").
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
+          & $iscc "/DAppVersion=$installerVersion" "/DOutputDir=$distDir" 'installer/windows/clarity.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+          # ISCC names the exe with the numeric version; normalize to the tag.
+          $built = Get-ChildItem $distDir -Filter 'Clarity-*-windows-setup.exe' |
+            Select-Object -First 1
+          if ($null -eq $built) {
+            throw 'Inno Setup completed but produced no installer in dist'
+          }
+          Rename-Item $built.FullName "Clarity-$version-windows-setup.exe"
+
+          Get-FileHash `
+            "dist/Clarity-$version-windows-setup.exe", `
+            "dist/Clarity-$version-windows.zip" `
+            -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content "dist/Clarity-$version-windows.sha256"
+
+          Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4
         with:
