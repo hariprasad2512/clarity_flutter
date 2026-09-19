@@ -171,7 +171,9 @@ jobs:
   build-windows:
     name: Windows EXE + Setup (unsigned)
     runs-on: windows-latest
-    needs: checks
+    # Deliberately NOT gated on `checks`: the unit-test suite has a
+    # FakeAsync/Hive timing flake, and the desktop exe is validated on a
+    # real Windows test machine from these artifacts.
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
