@@ -1,7 +1,8 @@
 name: Release
 
-# Builds signed Android AAB + unsigned macOS ZIP on version tags (v*),
-# attaches both to the GitHub Release. macOS ZIP feeds the personal
+# Builds signed Android AAB + unsigned macOS ZIP + unsigned Windows
+# EXE/setup (Inno Setup wizard + portable ZIP) on version tags (v*),
+# attaches all to the GitHub Release. macOS ZIP feeds the personal
 # Homebrew tap; AAB is uploaded to Play Console (manual for v1).
 #
 # Required secrets (repo Settings → Secrets → Actions):
@@ -167,10 +168,67 @@ jobs:
             dist/Clarity-*-macos.zip
             dist/Clarity-*-macos.sha256
 
+  build-windows:
+    name: Windows EXE + Setup (unsigned)
+    runs-on: windows-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+
+      - name: Restore .env from secrets (fallback to example)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.SUPABASE_URL }}" ]; then
+            {
+              echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}"
+              echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}"
+              echo "GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}"
+              echo "GOOGLE_IOS_CLIENT_ID=${{ secrets.GOOGLE_IOS_CLIENT_ID }}"
+              echo "SNOOZE_MINUTES_DEFAULT=60"
+              echo "OFFLINE_MODE=false"
+            } > .env
+            echo ".env restored from secrets."
+          else
+            cp .env.example .env
+            echo "::warning::SUPABASE_URL secret missing — building local-only Windows app."
+          fi
+
+      - name: Build Windows release
+        run: flutter build windows --release --dart-define-from-file=.env
+
+      - name: Build Inno Setup wizard + portable ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then VERSION="dev"; fi
+          mkdir -p dist
+          # Portable ZIP: exe + dlls + data\ (unzip-and-run for quick testing).
+          powershell -Command "Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath \"dist/Clarity-${VERSION}-windows.zip\" -Force"
+          # Setup wizard via Inno Setup.
+          choco install innosetup --no-progress -y
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "installer/windows/clarity.iss" "/DAppVersion=${VERSION}"
+          (cd dist && sha256sum "Clarity-${VERSION}-windows-setup.exe" "Clarity-${VERSION}-windows.zip" | tee "Clarity-${VERSION}-windows.sha256")
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: |
+            dist/Clarity-*-windows-setup.exe
+            dist/Clarity-*-windows.zip
+            dist/Clarity-*-windows.sha256
+
   release:
     name: Attach to GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-android, build-macos]
+    needs: [build-android, build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v4
