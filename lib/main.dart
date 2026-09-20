@@ -46,6 +46,15 @@ Future<void> main(List<String> args) async {
       await quickAddWindowMain(self);
       return;
     }
+    // Shared desktop default (was the 1280x720 native default on both
+    // Windows and macOS). Main window only — the panel sizes itself.
+    try {
+      await windowManager.setMinimumSize(const Size(360, 520));
+      await windowManager.setSize(const Size(1000, 700));
+      await windowManager.center();
+    } catch (_) {
+      // Best-effort (headless).
+    }
   }
   final store = await LocalStore.open();
   final prefs = await SharedPreferences.getInstance();
@@ -362,10 +371,19 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   /// No-ops on mobile/web/tests via guards.
   Future<void> _initDesktop() async {
     final tray = ref.read(trayServiceProvider);
-    final summon = ref.read(quickAddHostProvider).summon;
-    await ref.read(hotkeyServiceProvider).init(summon);
+    // Panel failure is never silent: when the floating window can't be
+    // created (e.g. multi-window hiccup on Windows), fall back to the
+    // in-window composer so hotkey/tray always do SOMETHING visible.
+    Future<void> summonQuickAdd() async {
+      final ok = await ref.read(quickAddHostProvider).summon();
+      if (ok || !mounted) return;
+      final ctx = appNavigatorKey.currentContext;
+      if (ctx != null && ctx.mounted) showTaskComposer(ctx);
+    }
+
+    await ref.read(hotkeyServiceProvider).init(summonQuickAdd);
     await tray.init(
-      quickAdd: summon,
+      quickAdd: summonQuickAdd,
       show: () async {
         try {
           await windowManager.show();

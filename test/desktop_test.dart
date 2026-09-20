@@ -133,7 +133,7 @@ void main() {
     });
 
     test('summon is a safe no-op in tests', () async {
-      await QuickAddHost().summon();
+      expect(await QuickAddHost().summon(), isFalse);
     });
   });
 

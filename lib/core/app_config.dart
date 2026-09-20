@@ -6,6 +6,10 @@
 /// working, cloud sync is off — same contract as native, so fresh clones
 /// and CI build with zero secrets.
 abstract final class AppConfig {
+  /// Human release stamp shown in Settings ("1.1.1 • Cloud sync").
+  /// Bump alongside `pubspec.yaml` (no package_info dep for one string).
+  static const release = '1.1.1+4';
+
   /// Custom URL scheme shared by OAuth callbacks on every platform.
   /// Matches native `callbackScheme` so both apps share the Supabase
   /// redirect allow-list entry.

@@ -1,4 +1,5 @@
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'desktop.dart';
@@ -19,14 +20,17 @@ class QuickAddHost {
   /// Show the panel, focusing it if already open. Safe no-op off-desktop.
   /// Creation is serialized: concurrent summons (e.g. hotkey repeats
   /// during launch) collapse onto the single in-flight window.
-  Future<void> summon() async {
-    if (!isDesktopApp || _creating) return;
+  /// Returns true when the panel is up; false when creation failed (or
+  /// off-desktop) so callers can fall back to the in-window composer
+  /// instead of failing silently.
+  Future<bool> summon() async {
+    if (!isDesktopApp || _creating) return false;
     final existing = _sub;
     if (existing != null) {
       try {
         await existing.show();
         await existing.invokeMethod('window_focus');
-        return;
+        return true;
       } catch (_) {
         _sub = null; // dead window — recreate below
       }
@@ -37,8 +41,15 @@ class QuickAddHost {
         WindowConfiguration(arguments: quickAddArguments(mainWindowId)),
       );
       await _sub!.show();
-    } catch (_) {
+      return true;
+    } catch (e) {
+      // Visible in debug runs: a dead hotkey/tray item is worse silent.
+      assert(() {
+        debugPrint('Clarity Quick Add panel failed: $e');
+        return true;
+      }());
       _sub = null;
+      return false;
     } finally {
       _creating = false;
     }

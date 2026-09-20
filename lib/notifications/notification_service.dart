@@ -109,8 +109,10 @@ class NotificationService {
               AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(channel);
       _ready = true;
-    } catch (_) {
-      // Notifications are best-effort: never break the app.
+    } catch (e) {
+      // Notifications are best-effort: never break the app. Logged (not
+      // silent) so `flutter run` shows WHY alerts are dead on a platform.
+      debugPrint('Clarity notifications unavailable: $e');
       _ready = false;
     }
   }
@@ -222,6 +224,32 @@ class NotificationService {
   /// [snoozeMinutes] bakes the dynamic action title.
   /// On Android without exact-alarm permission, falls back to inexact
   /// (fires within an OEM-dependent window) instead of throwing.
+  /// Immediate test ping for the Settings button. Proves init + OS
+  /// delivery in one tap on any platform. No-op when unready.
+  Future<void> showTest() async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        id: 0,
+        title: 'Clarity test',
+        body: 'Notifications are working.',
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            androidChannelId,
+            'Task reminders',
+            importance: Importance.high,
+          ),
+          iOS: const DarwinNotificationDetails(),
+          macOS: const DarwinNotificationDetails(),
+          linux: LinuxNotificationDetails(),
+          windows: const WindowsNotificationDetails(),
+        ),
+      );
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
   Future<void> schedule(TodoTask task, {int snoozeMinutes = 60}) async {
     if (!_ready || !shouldSchedule(task, DateTime.now())) return;
     try {

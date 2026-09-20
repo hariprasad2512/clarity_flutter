@@ -2,7 +2,7 @@
 ;
 ; Built on GitHub Actions (windows-latest):
 ;   flutter build windows --release
-;   iscc installer/windows/clarity.iss /DAppVersion=1.1.0
+;   iscc installer/windows/clarity.iss /DAppVersion=1.1.1
 ;
 ; Produces a classic setup wizard: Welcome > License > Directory >
 ; Start Menu > Install > Launch checkbox > Finish, plus uninstaller.
@@ -13,7 +13,7 @@
 #define MyAppName "Clarity"
 #define MyAppExeName "Clarity.exe"
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.1.1"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
@@ -62,6 +62,15 @@ Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ign
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Registry]
+; OAuth return path: com.harry.Clarity://oauth-callback (mirrors the macOS
+; Info.plist CFBundleURLTypes entry). Without this the browser sign-in flow
+; can't route back to the app. HKCU = per-user, no elevation needed.
+Root: HKCU; Subkey: "Software\Classes\com.harry.Clarity"; ValueType: string; ValueName: ""; ValueData: "URL:Clarity OAuth"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\com.harry.Clarity"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\com.harry.Clarity\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Classes\com.harry.Clarity\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

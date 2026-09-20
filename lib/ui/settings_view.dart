@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/auth_service.dart';
+import '../core/app_config.dart';
 import '../core/app_store.dart';
 import '../desktop/desktop.dart';
 import 'clarity_logo.dart';
@@ -60,7 +62,12 @@ class SettingsView extends ConsumerWidget {
               const SizedBox(height: 12),
               const _AndroidNotificationStatus(),
             ],
+            if (!kIsWeb) ...[
+              const SizedBox(height: 12),
+              const _TestPing(),
+            ],
             const SizedBox(height: 16),
+            _BuildStamp(),
             if (isDesktopApp) ...[
               const SizedBox(height: 16),
               Text('System',
@@ -96,6 +103,66 @@ class SettingsView extends ConsumerWidget {
           child: const Text('Done'),
         ),
       ],
+    );
+  }
+}
+
+/// One-tap notification proof (all platforms): fires an immediate test
+/// ping. If nothing appears, init or OS delivery is broken — no need to
+/// wait for a due task to find out.
+class _TestPing extends ConsumerStatefulWidget {
+  const _TestPing();
+
+  @override
+  ConsumerState<_TestPing> createState() => _TestPingState();
+}
+
+class _TestPingState extends ConsumerState<_TestPing> {
+  bool _sending = false;
+
+  Future<void> _ping() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _sending = true);
+    try {
+      await ref.read(notificationServiceProvider).showTest();
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Test notification sent — look for it.')),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        OutlinedButton(
+          onPressed: _sending ? null : _ping,
+          child: Text(_sending ? 'Sending…' : 'Send test notification'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Build stamp: release + cloud/local + account. Makes "why is there no
+/// sign-in button" answerable on-device (local-only builds hide the gate).
+class _BuildStamp extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final email = ref.watch(authUserProvider).maybeWhen(
+          data: (u) => u?.email, orElse: () => null);
+    final cloud = AppConfig.isConfigured;
+    final detail = !cloud
+        ? 'Local-only build'
+        : (email ?? 'Cloud sync ready');
+    return Text(
+      'Clarity ${AppConfig.release} • $detail',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.outline,
+          ),
     );
   }
 }
