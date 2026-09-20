@@ -14,6 +14,7 @@ In-app mark: green circle + white check on transparent.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 
 from PIL import Image, ImageDraw
 
@@ -68,6 +69,16 @@ def save(img: Image.Image, *parts: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     img.save(path)
     print(f"wrote {os.path.relpath(path, REPO)} ({img.size[0]}px)")
+
+
+def save_ico(
+    make: Callable[[int], Image.Image], sizes: list[int], *parts: str
+) -> None:
+    """Multi-size Windows .ico rendered from the brand mark."""
+    path = os.path.join(REPO, *parts)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    make(max(sizes)).save(path, sizes=[(s, s) for s in sizes])
+    print(f"wrote {os.path.relpath(path, REPO)} (ico {sizes})")
 
 
 def main() -> None:
@@ -132,6 +143,20 @@ def main() -> None:
     save(
         bg.convert("RGB"),
         "assets", "logo", "clarity_store_icon_512.png",
+    )
+
+    # 7. Windows app + installer icon (green square + check). The exe's
+    # IDI_APP_ICON, taskbar, Start Menu shortcut, and Inno SetupIconFile
+    # all read this one file.
+    save_ico(
+        green_square, [16, 24, 32, 48, 64, 128, 256],
+        "windows", "runner", "resources", "app_icon.ico",
+    )
+
+    # 8. Windows tray icon (small sizes; tray_manager reads the .ico).
+    save_ico(
+        green_square, [16, 24, 32, 48],
+        "assets", "tray", "tray_icon.ico",
     )
 
 

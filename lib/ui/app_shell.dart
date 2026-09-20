@@ -33,10 +33,14 @@ class AppShell extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Desktop summons the floating Spotlight-style panel; mobile/web
-        // open the bottom-sheet composer (Google-Tasks style).
+        // open the bottom-sheet composer (Google-Tasks style). When the
+        // panel can't be created, fall back to the composer in-window.
         void quickAdd() {
           if (isDesktopApp) {
-            ref.read(quickAddHostProvider).summon();
+            () async {
+              final ok = await ref.read(quickAddHostProvider).summon();
+              if (!ok && context.mounted) showTaskComposer(context);
+            }();
           } else {
             showTaskComposer(context);
           }
