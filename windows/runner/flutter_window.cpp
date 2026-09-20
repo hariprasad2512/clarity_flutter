@@ -4,6 +4,13 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+// desktop_multi_window sub-windows (e.g. the Quick Add panel) run their
+// own Flutter engine: plugins must be registered per-engine, or every
+// method-channel call fails with MissingPluginException and the panel
+// stays a blank native window. Mirrors the macOS
+// setOnWindowCreatedCallback in MainFlutterWindow.swift.
+#include "desktop_multi_window/desktop_multi_window_plugin.h"
+
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -25,6 +32,11 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  DesktopMultiWindowSetWindowCreatedCallback([](void *controller) {
+    auto *flutter_view_controller =
+        reinterpret_cast<flutter::FlutterViewController *>(controller);
+    RegisterPlugins(flutter_view_controller->engine());
+  });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
