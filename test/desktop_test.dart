@@ -135,6 +135,28 @@ void main() {
     test('summon is a safe no-op in tests', () async {
       expect(await QuickAddHost().summon(), isFalse);
     });
+
+    test('host/panel/main share one method contract', () {
+      // These strings cross isolate boundaries (host ↔ panel ↔ main
+      // handler). A rename on one side without the others resurrects the
+      // dead-window bug, so pin them here.
+      expect(QuickAddHost.submitMethod, 'quick_add_submit');
+      expect(QuickAddHost.closingMethod, 'quick_add_closing');
+      expect(QuickAddHost.pingMethod, 'window_ping');
+      expect(QuickAddHost.focusMethod, 'window_focus');
+    });
+
+    test('summon debounce is positive and sub-second', () {
+      expect(QuickAddHost.summonDebounce.inMilliseconds,
+          allOf(isPositive, lessThan(1000)));
+    });
+
+    test('boot grace exceeds ping timeout with margin', () {
+      expect(
+        QuickAddHost.bootGrace.inMilliseconds,
+        greaterThan(QuickAddHost.pingTimeout.inMilliseconds * 2),
+      );
+    });
   });
 
   group('launch-at-login setting', () {    test('defaults off and stays off outside desktop', () async {

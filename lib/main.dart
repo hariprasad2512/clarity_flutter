@@ -46,11 +46,10 @@ Future<void> main(List<String> args) async {
       await quickAddWindowMain(self);
       return;
     }
-    // Shared desktop default (was the 1280x720 native default on both
-    // Windows and macOS). Main window only — the panel sizes itself.
+    // Shared desktop default. Main window only — the panel sizes itself.
     try {
       await windowManager.setMinimumSize(const Size(360, 520));
-      await windowManager.setSize(const Size(1000, 700));
+      await windowManager.setSize(const Size(900, 620));
       await windowManager.center();
     } catch (_) {
       // Best-effort (headless).
@@ -98,13 +97,17 @@ Future<void> main(List<String> args) async {
     final self = await WindowController.fromCurrentEngine();
     container.read(quickAddHostProvider).mainWindowId = self.windowId;
     await self.setWindowMethodHandler((call) async {
-      if (call.method == 'quick_add_submit') {
+      if (call.method == QuickAddHost.submitMethod) {
         final payload = parseQuickAddPayload(call.arguments);
         if (payload == null) return false;
         final task = await container
             .read(taskListProvider.notifier)
             .add(payload.text, manualDate: payload.due);
         return task != null;
+      }
+      if (call.method == QuickAddHost.closingMethod) {
+        container.read(quickAddHostProvider).onPanelClosed();
+        return true;
       }
     });
   }
