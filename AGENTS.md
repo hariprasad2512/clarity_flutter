@@ -1,143 +1,37 @@
-# Project Rules
+# Clarity Flutter — Agent Guide
 
-This is a Dart / Flutter, Swift, C, C++, Kotlin, Shell Scripts, Documentation / Markdown project.
+Flutter todo app. Local-first (Hive CE) + Supabase sync, Riverpod state.
+Primary target for this session: **Windows desktop app**.
 
-## Project Structure
+## Run on Windows (exact order)
 
-<!-- TODO: Describe your project structure here -->
-<!-- Example:
-- `src/` - Application source code
-- `tests/` - Test files
-- `docs/` - Documentation
--->
+1. `flutter pub get`
+2. `Copy-Item .env.example -Destination .env` then fill keys (empty = local-only, works offline)
+3. `flutter run -d windows --dart-define-from-file=.env`
+4. Verify: `dart analyze` must say "No issues found"; `flutter test`
 
-## Code Standards
+> Always pass `--dart-define-from-file=.env` — without it the build silently falls back to local-only ("Local only" sidebar footer).
 
-### Dart / Flutter
+- Single test: `flutter test test/<name>_test.dart` (e.g. `sync_engine_test.dart`)
+- Release exe: `flutter build windows --release --dart-define-from-file=.env` → `build/windows/x64/runner/Release/Clarity.exe`
+- Installer: `installer/windows/clarity.iss` via Inno `ISCC.exe` in **pwsh** (not Git Bash — MSYS mangles `/D` defines). `AppVersion` must be numeric dotted only; release workflow sanitizes tag → filename separately. Portable ZIP = `Compress-Archive build/windows/x64/runner/Release/*`.
 
-- Follow Effective Dart guidelines
-- Use const constructors where possible
-- Separate business logic from UI widgets
+Prereqs: Flutter 3.47+ stable, VS Build Tools, Windows 10/11 x64. `flutter config --enable-windows-desktop` once.
 
-### Swift
+## Architecture (not obvious from filenames)
 
-- Follow Swift API design guidelines
-- Use guard for early returns
-- Prefer value types (structs) over reference types (classes)
+- Entrypoint `lib/main.dart`: main window + `quick_add` sub-window (`desktop_multi_window`, separate isolate). Main isolate owns Hive/sync/notifications; panel submits via `quick_add_submit` channel.
+- `lib/core/` TaskListNotifier owns state; mutation → Hive persist → reschedule notifications → widget refresh → debounced push (1.2s). Foreground pull 15s + 5s coalesced retry, backoff to ~60s.
+- `isDesktopApp` (`lib/desktop/desktop.dart`) gates tray/hotkey/`window_manager`: true on macOS/Windows/Linux only, false on web and when `FLUTTER_TEST` set. Guard new desktop code the same way.
+- Hive boxes open in exactly one isolate. Background workers may only touch `SharedPreferences` + notifications — never Hive.
+- `AppConfig.isConfigured` false → local-only, no login gate in debug. `release` string in `lib/core/app_config.dart` must be bumped with `pubspec.yaml` version.
+- OAuth callback `com.harry.Clarity://oauth-callback`; Windows registration in `clarity.iss` (HKCU, no elevation). Don't rename without updating Supabase allow-list + macOS plist + iss.
 
-### C
+## Conventions & gotchas
 
-- Always check return values and handle errors
-- Free allocated memory and avoid leaks
-- Use header guards in all .h files
-
-### C++
-
-- Use RAII for resource management
-- Prefer smart pointers over raw pointers
-- Follow the C++ Core Guidelines
-
-### Kotlin
-
-- Use data classes for DTOs
-- Prefer val over var
-- Use coroutines for async operations
-
-### Shell Scripts
-
-- Use set -euo pipefail at the start of scripts
-- Quote all variable expansions
-- Use functions for reusable logic
-
-### Documentation / Markdown
-
-- Use consistent heading levels
-- Keep line length under 120 characters where practical
-- Include code examples for technical documentation
-
-## Commands
-
-### Dart / Flutter
-
-- **Build:** `flutter build`
-- **Test:** `flutter test`
-- **Lint:** `dart analyze`
-
-### Swift
-
-- **Build:** `swift build`
-- **Test:** `swift test`
-- **Lint:** `swiftlint`
-
-### C
-
-- **Build:** `make`
-- **Test:** `make test`
-- **Lint:** `cppcheck --enable=all .`
-
-### C++
-
-- **Build:** `cmake --build .`
-- **Test:** `make test`
-- **Lint:** `clang-tidy`
-
-### Kotlin
-
-- **Build:** `gradle build`
-- **Test:** `gradle test`
-- **Lint:** `gradle ktlintCheck`
-
-### Shell Scripts
-
-- **Test:** `bats test/`
-- **Lint:** `shellcheck **/*.sh`
-
-### Documentation / Markdown
-
-- **Lint:** `markdownlint "**/*.md"`
-
-## Custom Agents
-
-The following custom subagents are available (invoke with `@agent-name`):
-
-- **@backend-developer**: Server-side logic, APIs, and data processing
-- **@mobile-developer**: Native and cross-platform mobile app development
-- **@java-architect**: Java architecture, JVM tuning, and enterprise patterns
-- **@kotlin-specialist**: Kotlin idioms, coroutines, and multiplatform development
-- **@swift-expert**: Swift protocols, concurrency, and Apple platform APIs
-- **@cpp-pro**: Modern C++ patterns, templates, and memory management
-- **@spring-boot-engineer**: Spring Boot auto-config, DI, and reactive stack
-- **@flutter-expert**: Flutter widgets, state management, and platform channels
-- **@devops-engineer**: CI/CD pipelines, infrastructure, and deployment
-- **@platform-engineer**: Internal developer platforms and self-service tooling
-- **@sre-engineer**: Site reliability, monitoring, and incident response
-- **@code-reviewer**: Code review with security and performance focus
-- **@performance-engineer**: Performance profiling and optimization guidance
-- **@cli-developer**: CLI tool design, argument parsing, and UX patterns
-- **@dependency-manager**: Dependency updates, audit, and compatibility checks
-- **@docs-writer**: Technical documentation and API reference writing
-- **@git-workflow-manager**: Git workflow, branching strategy, and commit hygiene
-- **@test-writer**: Test generation following project patterns
-- **@embedded-systems**: Firmware, RTOS, and hardware interface programming
-- **@game-developer**: Game engine integration, physics, and rendering pipelines
-- **@mobile-app-developer**: Mobile UI/UX, app lifecycle, and platform guidelines
-- **@technical-writer**: User guides, tutorials, and knowledge base articles
-
-## Available Skills
-
-The following skills are installed and will be loaded on demand:
-
-- **git-release**: Release notes and version bumps
-- **pr-review**: Structured PR review checklist
-- **test-patterns**: Test generation following project conventions
-- **deploy**: CI/CD pipeline and deployment setup
-- **dependency-audit**: Audit dependencies for vulnerabilities and license issues
-- **changelog-generate**: Changelog generation from commit history
-- **ci-pipeline**: CI pipeline configuration and optimization
-- **env-setup**: Development environment setup and onboarding
-
-## Conventions
-
-- Use conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`
-- Write meaningful commit messages that explain the "why"
-- Keep PRs focused on a single concern
+- Branches: `main` release-ready (protected), `develop-ai` active dev. Branch `feat/<x>`, `fix/<x>` off `develop-ai`. Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`), imperative, explain why. See `CONTRIBUTING.md`.
+- `test/` mirrors `lib/`; new logic needs unit test, new UI needs widget test where practical.
+- Supabase: apply `supabase/migrations/` (`updated_at` trigger + `tasks_delete_own` DELETE RLS). Missing DELETE policy → swipe-deletes queue forever and retry.
+- Never commit: `.env`, `google-services.json`, `GoogleService-Info.plist`, `*.jks`/`key.properties` — check `git status`.
+- CI (`ci.yml`): `flutter pub get` → `dart analyze` → `flutter test`. Windows `release.yml` job is NOT gated on `checks` (known FakeAsync/Hive timing flake); validate exe on real Windows machine.
+- Tray assets: `assets/tray/*`, `assets/logo/`; regenerate with `python tool/generate_logo_assets.py` after logo tweak.

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,10 +17,14 @@ import 'quick_add_host.dart';
 /// multi-window channel; the main isolate parses + creates + schedules.
 /// Only `DateParser` (pure Dart) is shared, for the live date preview.
 Future<void> quickAddWindowMain(WindowController self) async {
-  const options = WindowOptions(
-    size: Size(520, 170),
+  // Transparent surfaces paint black on Win32 until the first Flutter
+  // frame; the host no longer shows this window early, so keep
+  // transparency only where the compositor supports it (macOS).
+  final transparent = !Platform.isWindows;
+  final options = WindowOptions(
+    size: const Size(520, 170),
     center: true,
-    backgroundColor: Colors.transparent,
+    backgroundColor: transparent ? Colors.transparent : Colors.white,
     skipTaskbar: true,
     titleBarStyle: TitleBarStyle.hidden,
     windowButtonVisibility: false,
@@ -29,7 +35,10 @@ Future<void> quickAddWindowMain(WindowController self) async {
     await windowManager.focus();
   });
   await self.setWindowMethodHandler((call) async {
-    if (call.method == 'window_focus') {
+    if (call.method == QuickAddHost.pingMethod) {
+      return true;
+    }
+    if (call.method == QuickAddHost.focusMethod) {
       await windowManager.focus();
     }
   });
@@ -58,21 +67,39 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     super.dispose();
   }
 
+  Future<void> _notifyClosing() async {
+    // Tell the main isolate the panel is going away so it drops its
+    // controller. Otherwise the next summon re-shows this dead window
+    // (black on Windows) instead of creating a fresh one.
+    final target = widget.mainWindowId;
+    if (target == null) return;
+    try {
+      await WindowController.fromWindowId(target)
+          .invokeMethod(QuickAddHost.closingMethod);
+    } catch (_) {
+      // Main window unreachable (quitting?) — nothing to do.
+    }
+  }
+
   Future<void> _submit() async {
     final text = _ctrl.text.trim();
     final target = widget.mainWindowId;
     if (text.isEmpty || _sending || target == null) return;
     setState(() => _sending = true);
     try {
-      await WindowController.fromWindowId(target)
-          .invokeMethod('quick_add_submit', {'text': text});
+      await WindowController.fromWindowId(target).invokeMethod(
+          QuickAddHost.submitMethod, {'text': text});
     } catch (_) {
       // Main window unreachable (quitting?) — nothing to do.
     }
+    await _notifyClosing();
     await windowManager.close();
   }
 
-  Future<void> _dismiss() => windowManager.close();
+  Future<void> _dismiss() async {
+    await _notifyClosing();
+    await windowManager.close();
+  }
 
   @override
   Widget build(BuildContext context) {
