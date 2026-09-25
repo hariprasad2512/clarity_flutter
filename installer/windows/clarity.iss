@@ -2,7 +2,7 @@
 ;
 ; Built on GitHub Actions (windows-latest):
 ;   flutter build windows --release
-;   iscc installer/windows/clarity.iss /DAppVersion=1.1.3
+;   iscc installer/windows/clarity.iss /DAppVersion=1.1.4
 ;
 ; Produces a classic setup wizard: Welcome > License > Directory >
 ; Start Menu > Install > Launch checkbox > Finish, plus uninstaller.
@@ -13,7 +13,7 @@
 #define MyAppName "Clarity"
 #define MyAppExeName "Clarity.exe"
 #ifndef AppVersion
-  #define AppVersion "1.1.3"
+  #define AppVersion "1.1.4"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\dist"

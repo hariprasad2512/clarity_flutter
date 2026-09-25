@@ -40,7 +40,7 @@ jobs:
       - run: flutter test
 
   build-android:
-    name: Android AAB
+    name: Android AAB + APK
     runs-on: ubuntu-latest
     needs: checks
     steps:
@@ -102,19 +102,28 @@ jobs:
       - name: Build app bundle
         run: flutter build appbundle --release --dart-define-from-file=.env
 
-      - name: Rename AAB with version
+      - name: Build APK (direct install)
+        run: flutter build apk --release --dart-define-from-file=.env
+
+      - name: Rename AAB + APK with version
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then VERSION="dev"; fi
           mkdir -p dist
           cp build/app/outputs/bundle/release/app-release.aab "dist/Clarity-${VERSION}-android.aab"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/Clarity-${VERSION}-android.apk"
           ls -lh dist/
 
       - uses: actions/upload-artifact@v4
         with:
           name: android-aab
           path: dist/Clarity-*-android.aab
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/Clarity-*-android.apk
 
   build-macos:
     name: macOS ZIP (unsigned)
