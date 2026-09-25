@@ -95,4 +95,33 @@ void main() {
       expect(restored.createdAt, isNotNull);
     });
   });
+
+  group('TodoTask.isOverdue (badge rule: strictly before today)', () {
+    test('yesterday counts, today and tomorrow do not', () {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      expect(_task(due: today.subtract(const Duration(days: 1))).isOverdue,
+          isTrue);
+      expect(_task(due: today).isOverdue, isFalse);
+      expect(
+          _task(due: today.add(const Duration(days: 1))).isOverdue, isFalse);
+    });
+
+    test('completed, undated and late-today tasks never count', () {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      expect(
+          _task(due: today.subtract(const Duration(days: 1)), done: true)
+              .isOverdue,
+          isFalse);
+      expect(_task().isOverdue, isFalse);
+      // 23:59 today is Today-tab territory, not overdue.
+      expect(
+          _task(
+                  due: today.add(
+                      const Duration(hours: 23, minutes: 59)))
+              .isOverdue,
+          isFalse);
+    });
+  });
 }

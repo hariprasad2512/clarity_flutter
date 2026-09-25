@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'auth/auth_service.dart';
+import 'core/app_badge.dart';
 import 'core/app_config.dart';
 import 'core/app_store.dart';
 import 'data/local_store.dart';
@@ -239,6 +240,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   bool _wired = false;
   Timer? _syncTimer;
   Timer? _syncRetryTimer;
+  Timer? _midnightTimer;
   final SyncBackoff _backoff = SyncBackoff();
   WindowListener? _windowListener;
   StreamSubscription<AuthState>? _authSub;
@@ -255,6 +257,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
     _syncRetryTimer?.cancel();
+    _midnightTimer?.cancel();
     final listener = _windowListener;
     _windowListener = null;
     if (listener != null) {
@@ -311,6 +314,9 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     // handlers above were assigned (cold start); otherwise the tap is lost
     // and it looks like the button "just opens the app".
     unawaited(notifications.drainPendingActions());
+    // Red overdue badge follows every task change (mutations, sync,
+    // sign-out wipe) without touching any other wiring.
+    _scheduleMidnightRefresh();
     Future(() async {
       await notifications.requestPermission();
       if (!mounted) return;
@@ -318,6 +324,9 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
+      // Initial badge paint (listener covers later changes).
+      unawaited(
+          AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
       await ref
           .read(widgetServiceProvider)
           .refresh(ref.read(taskListProvider));
@@ -457,6 +466,25 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     }
   }
 
+  /// Day-boundary refresh: overdue/Today/badge/widget state is derived
+  /// from wall-clock dates, so re-read the store just past midnight.
+  /// Single-shot, rescheduled each fire; no-op when unmounted.
+  void _scheduleMidnightRefresh() {
+    _midnightTimer?.cancel();
+    final now = DateTime.now();
+    final next = DateTime(now.year, now.month, now.day + 1)
+        .add(const Duration(minutes: 1));
+    _midnightTimer = Timer(next.difference(now), () {
+      if (!mounted) return;
+      try {
+        ref.read(taskListProvider.notifier).refreshFromStore();
+      } catch (_) {
+        // Best-effort.
+      }
+      _scheduleMidnightRefresh();
+    });
+  }
+
   /// Cold-start via widget (e.g. QuickAdd tile while the app was dead).
   Future<void> _handleInitialWidgetUri() async {
     try {
@@ -480,7 +508,13 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    // ref.listen is build-only; the badge then tracks every task change.
+    ref.listen<int>(overdueCountProvider, (_, count) {
+      unawaited(AppBadgeService.updateBadge(count));
+    });
+    return widget.child;
+  }
 }
 
 /// Window focus → full pull, blur → push-only flush. Desktop-only;
