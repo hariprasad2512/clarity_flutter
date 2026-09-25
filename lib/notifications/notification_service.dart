@@ -399,27 +399,112 @@ class NotificationService {
     await _cacheRemove(taskId);
   }
 
-  /// Startup reconcile: clear stale system state, then schedule every
-  /// actionable task. Called on every launch (covers reboot).
+  /// Pure reconcile diff (unit-tested).
+  ///
+  /// - [openIds]: tasks still alive (not completed/deleted) with a due
+  ///   date — anything in the OS (pending timer or delivered toast) outside
+  ///   this set is stale and must go.
+  /// - [schedulableIds]: subset of [openIds] that is future-dated
+  ///   ([shouldSchedule]) and needs a pending timer.
+  /// - Delivered toasts for still-open (possibly overdue) tasks are never
+  ///   touched: they park in the OS notification center until the user
+  ///   acts. This is why there is no blanket cancelAll here — it wiped
+  ///   Action Center on every launch and sync.
+  static ({Set<int> toCancel, Set<int> toSchedule}) reconcileNotifications({
+    required Set<int> openIds,
+    required Set<int> schedulableIds,
+    required Set<int> pendingIds,
+    required Set<int> activeIds,
+  }) {
+    final known = {...pendingIds, ...activeIds};
+    return (
+      toCancel: known.difference(openIds),
+      toSchedule: schedulableIds.difference(pendingIds),
+    );
+  }
+
+  /// Targeted reconcile: cancel only toasts/timers for dead tasks, schedule
+  /// only missing timers, and re-time edited ones. Delivered toasts for
+  /// open tasks survive launches and syncs. Called on launch, sync writes
+  /// and settings changes — never destructive on uncertainty (query
+  /// failure schedules, never wipes).
   Future<void> rescheduleAll(
     Iterable<TodoTask> tasks, {
     int snoozeMinutes = 60,
   }) async {
     if (!_ready) return;
     try {
-      await _plugin.cancelAll();
-    } catch (_) {
-      // Continue to (re)schedule regardless.
-    }
-    final now = DateTime.now();
-    for (final task in tasks) {
-      if (shouldSchedule(task, now)) {
+      final now = DateTime.now();
+      final byIntId = <int, TodoTask>{};
+      final openIds = <int>{};
+      final schedulableIds = <int>{};
+      for (final task in tasks) {
+        if (task.isCompleted || task.dueDate == null) continue;
+        final id = notificationIdFor(task.id);
+        byIntId[id] = task;
+        openIds.add(id);
+        if (shouldSchedule(task, now)) schedulableIds.add(id);
+      }
+      Set<int> pendingIds = {};
+      Set<int> activeIds = {};
+      try {
+        pendingIds = {
+          for (final r in await _plugin.pendingNotificationRequests()) r.id
+        };
+        activeIds = {
+          for (final n in await _plugin.getActiveNotifications()) n.id ?? -1
+        };
+        activeIds.remove(-1);
+      } catch (_) {
+        // Unknown OS state: schedule-only below, never wipe.
+      }
+      final diff = reconcileNotifications(
+        openIds: openIds,
+        schedulableIds: schedulableIds,
+        pendingIds: pendingIds,
+        activeIds: activeIds,
+      );
+      for (final id in diff.toCancel) {
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          // Best-effort per id.
+        }
+      }
+      // Re-time edited tasks whose pending timer carries a stale due date
+      // or snooze delay (edits normally reschedule directly; this is the
+      // backstop for sync-applied changes).
+      final mirror = ReminderCache.decode(
+        (await SharedPreferences.getInstance())
+            .getString(ReminderCache.prefsKey),
+      );
+      final mirrorById = {for (final e in mirror) notificationIdFor(e.id): e};
+      for (final id in schedulableIds.intersection(pendingIds)) {
+        final task = byIntId[id];
+        final entry = mirrorById[id];
+        final dueMs = task?.dueDate?.millisecondsSinceEpoch;
+        if (task == null) continue;
+        if (entry != null &&
+            entry.dueMs == dueMs &&
+            entry.snoozeMinutes == snoozeMinutes) {
+          continue; // timer already matches — leave it alone
+        }
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          // Best-effort per id.
+        }
         await schedule(task, snoozeMinutes: snoozeMinutes);
       }
+      for (final id in diff.toSchedule) {
+        final task = byIntId[id];
+        if (task != null) await schedule(task, snoozeMinutes: snoozeMinutes);
+      }
+    } catch (_) {
+      // Best-effort overall.
     }
     // Rewrite the prefs mirror to drop stale ids (deleted/completed on
-    // another device). Individual schedule() calls above already upserted,
-    // so this is a prune pass.
+    // another device).
     await _cacheReplaceAll(tasks, snoozeMinutes);
   }
 

@@ -135,4 +135,51 @@ void main() {
           isNull);
     });
   });
+
+  group('NotificationService.reconcileNotifications', () {
+    ({Set<int> toCancel, Set<int> toSchedule}) reconcile({
+      Set<int> open = const {},
+      Set<int> schedulable = const {},
+      Set<int> pending = const {},
+      Set<int> active = const {},
+    }) =>
+        NotificationService.reconcileNotifications(
+          openIds: open,
+          schedulableIds: schedulable,
+          pendingIds: pending,
+          activeIds: active,
+        );
+
+    test('delivered toast for an open overdue task is never touched', () {
+      // The core Action Center promise: fired + unanswered + still open
+      // survives launches and syncs (no blanket cancelAll anymore).
+      final r = reconcile(open: {1}, active: {1});
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('stale system entries for dead tasks are cancelled', () {
+      final r = reconcile(pending: {1, 2}, active: {3});
+      expect(r.toCancel, {1, 2, 3});
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('missing timers for due tasks are scheduled', () {
+      final r = reconcile(open: {1, 2}, schedulable: {1, 2}, pending: {1});
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, {2});
+    });
+
+    test('matching timers are left alone; completed pruned', () {
+      final r = reconcile(open: {1}, schedulable: {1}, pending: {1, 9});
+      expect(r.toCancel, {9});
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('empty states are no-ops', () {
+      final r = reconcile();
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, isEmpty);
+    });
+  });
 }
