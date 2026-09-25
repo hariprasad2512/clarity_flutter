@@ -145,21 +145,28 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   FillRect(mask_dc, &rc, white);
   SelectObject(mask_dc, black);
   Ellipse(mask_dc, 0, 0, kSize, kSize);
-  // Color: red everywhere, so downscaled rim pixels blend red-on-red.
-  // The mask still clips everything outside the disc to transparent.
-  HBRUSH red = CreateSolidBrush(RGB(220, 38, 38));
+  // Color: iOS badge red everywhere, so downscaled rim pixels blend
+  // red-on-red. The mask still clips everything outside the disc.
+  HBRUSH red = CreateSolidBrush(RGB(255, 59, 48));
   FillRect(dc, &rc, red);
   SelectObject(dc, red);
   Ellipse(dc, 0, 0, kSize, kSize);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(255, 255, 255));
-  HFONT font = CreateFontW(text.length() > 2 ? 30 : 40, 0, 0, 0, FW_BOLD, FALSE,
+  // iOS proportions: ultra-heavy digits ~55-60% of disc diameter, tiered so
+  // two digits and "99+" still fit. Grayscale AA survives the downscale to
+  // 16px; ClearType subpixels turn to color mush.
+  const int fontHeight =
+      text.length() > 2 ? 28 : (text.length() > 1 ? 36 : 46);
+  HFONT font = CreateFontW(fontHeight, 0, 0, 0, FW_BLACK, FALSE,
                            FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                           CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
   HGDIOBJ old_font = nullptr;
   if (font) old_font = SelectObject(dc, font);
-  DrawTextW(dc, text.c_str(), -1, const_cast<LPRECT>(&rc),
+  // Optical centering: DrawText VCenter sits digits slightly high.
+  RECT text_rc{0, kSize / 16, kSize, kSize + kSize / 16};
+  DrawTextW(dc, text.c_str(), -1, &text_rc,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE);
   if (font) {
     SelectObject(dc, old_font);
