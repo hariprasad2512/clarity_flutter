@@ -277,8 +277,10 @@ class NotificationService {
           linux: LinuxNotificationDetails(),
           windows: WindowsNotificationDetails(
             images: <WindowsImage>[
+              // Green logo asset: tray_icon.png is a black glyph that
+              // vanishes on dark toasts — the color variant stays visible.
               WindowsImage(
-                WindowsImage.getAssetUri('assets/tray/tray_icon.png'),
+                WindowsImage.getAssetUri('assets/tray/tray_icon_color@2x.png'),
                 altText: 'Clarity',
                 placement: WindowsImagePlacement.appLogoOverride,
                 crop: WindowsImageCrop.circle,
@@ -365,8 +367,10 @@ class NotificationService {
               ),
             ],
             images: <WindowsImage>[
+              // Green logo asset: tray_icon.png is a black glyph that
+              // vanishes on dark toasts — the color variant stays visible.
               WindowsImage(
-                WindowsImage.getAssetUri('assets/tray/tray_icon.png'),
+                WindowsImage.getAssetUri('assets/tray/tray_icon_color@2x.png'),
                 altText: 'Clarity',
                 placement: WindowsImagePlacement.appLogoOverride,
                 crop: WindowsImageCrop.circle,

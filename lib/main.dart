@@ -55,7 +55,16 @@ Future<void> main(List<String> args) async {
       // Best-effort (headless).
     }
   }
-  final store = await LocalStore.open();
+  LocalStore store;
+  try {
+    store = await LocalStore.open();
+  } catch (_) {
+    // A second Clarity window (e.g. a stale shortcut launching another
+    // copy) can't share Hive's single-isolate boxes — without this guard
+    // it sits at a blank white window. Say so and get out of the way.
+    runApp(const _AlreadyRunningApp());
+    return;
+  }
   final prefs = await SharedPreferences.getInstance();
   final notifications = NotificationService();
   final snoozeMinutes = prefs.getInt(SettingsNotifier.snoozeKey);
@@ -497,6 +506,57 @@ class _SyncWindowListener extends WindowListener {
     } catch (_) {
       // Best-effort.
     }
+  }
+}
+
+/// Duplicate-instance screen: Hive boxes open in exactly one process, so a
+/// second Clarity copy can never boot its store. Shown instead of a blank
+/// white window; closing it ends the duplicate process.
+class _AlreadyRunningApp extends StatelessWidget {
+  const _AlreadyRunningApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Clarity is already running',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                const Text(
+                  'This extra window cannot open your tasks while the first '
+                  'copy is running. Close it and use the original window '
+                  '(check the system tray).',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () async {
+                    try {
+                      if (isDesktopApp) {
+                        await windowManager.destroy();
+                        return;
+                      }
+                    } catch (_) {
+                      // Fall through to exit.
+                    }
+                    exit(0);
+                  },
+                  child: const Text('Close this window'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
