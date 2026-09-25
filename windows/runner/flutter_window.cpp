@@ -114,7 +114,10 @@ void FlutterWindow::SetTaskbarBadge(int count) {
 }
 
 HICON FlutterWindow::CreateBadgeIcon(int count) {
-  constexpr int kSize = 32;
+  // Rendered large: Windows downscales the overlay, and edge pixels blend
+  // with the bitmap background — a red background (not black) keeps the
+  // rim clean instead of fringing dark like WhatsApp comparisons showed.
+  constexpr int kSize = 64;
   const std::wstring text = count > 99 ? L"99+" : std::to_wstring(count);
 
   HDC screen = GetDC(nullptr);
@@ -142,14 +145,15 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   FillRect(mask_dc, &rc, white);
   SelectObject(mask_dc, black);
   Ellipse(mask_dc, 0, 0, kSize, kSize);
-  // Color: red disc, white count. Long text gets a smaller font.
-  FillRect(dc, &rc, black);
+  // Color: red everywhere, so downscaled rim pixels blend red-on-red.
+  // The mask still clips everything outside the disc to transparent.
   HBRUSH red = CreateSolidBrush(RGB(220, 38, 38));
+  FillRect(dc, &rc, red);
   SelectObject(dc, red);
   Ellipse(dc, 0, 0, kSize, kSize);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(255, 255, 255));
-  HFONT font = CreateFontW(text.length() > 2 ? 15 : 20, 0, 0, 0, FW_BOLD, FALSE,
+  HFONT font = CreateFontW(text.length() > 2 ? 30 : 40, 0, 0, 0, FW_BOLD, FALSE,
                            FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
