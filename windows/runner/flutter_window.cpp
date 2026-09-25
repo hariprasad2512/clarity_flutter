@@ -141,15 +141,19 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   const RECT rc{0, 0, kSize, kSize};
   HBRUSH white = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
   HBRUSH black = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
-  // Mask: transparent everywhere except the badge disc.
+  HPEN noPen = static_cast<HPEN>(GetStockObject(NULL_PEN));
+  // Mask: transparent everywhere except the badge disc. NULL_PEN: GDI
+  // shapes otherwise get a 1px black outline (the dark rim in toasts).
   FillRect(mask_dc, &rc, white);
   SelectObject(mask_dc, black);
+  SelectObject(mask_dc, noPen);
   Ellipse(mask_dc, 0, 0, kSize, kSize);
   // Color: iOS badge red everywhere, so downscaled rim pixels blend
   // red-on-red. The mask still clips everything outside the disc.
   HBRUSH red = CreateSolidBrush(RGB(255, 59, 48));
   FillRect(dc, &rc, red);
   SelectObject(dc, red);
+  SelectObject(dc, noPen);
   Ellipse(dc, 0, 0, kSize, kSize);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(255, 255, 255));
@@ -157,7 +161,7 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   // two digits and "99+" still fit. Grayscale AA survives the downscale to
   // 16px; ClearType subpixels turn to color mush.
   const int fontHeight =
-      text.length() > 2 ? 28 : (text.length() > 1 ? 36 : 46);
+      text.length() > 2 ? 28 : (text.length() > 1 ? 38 : 50);
   HFONT font = CreateFontW(fontHeight, 0, 0, 0, FW_BLACK, FALSE,
                            FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                            CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
