@@ -241,6 +241,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   Timer? _syncTimer;
   Timer? _syncRetryTimer;
   Timer? _midnightTimer;
+  Timer? _badgeRetryTimer;
   final SyncBackoff _backoff = SyncBackoff();
   WindowListener? _windowListener;
   StreamSubscription<AuthState>? _authSub;
@@ -258,6 +259,7 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     _syncTimer?.cancel();
     _syncRetryTimer?.cancel();
     _midnightTimer?.cancel();
+    _badgeRetryTimer?.cancel();
     final listener = _windowListener;
     _windowListener = null;
     if (listener != null) {
@@ -324,9 +326,25 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
-      // Initial badge paint (listener covers later changes).
-      unawaited(
-          AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
+      // Initial badge paint (listener covers later changes). The first
+      // paint can race taskbar setup on cold start and fail silently, so
+      // two delayed repaints back it up (badge calls are idempotent).
+      void paintBadge() {
+        if (!mounted) return;
+        try {
+          unawaited(
+              AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
+        } catch (_) {
+          // Best-effort.
+        }
+      }
+
+      paintBadge();
+      _badgeRetryTimer?.cancel();
+      _badgeRetryTimer = Timer(const Duration(seconds: 10), () {
+        paintBadge();
+        _badgeRetryTimer = Timer(const Duration(seconds: 20), paintBadge);
+      });
       await ref
           .read(widgetServiceProvider)
           .refresh(ref.read(taskListProvider));
@@ -423,9 +441,19 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     // phone pulls immediately instead of waiting for the next poll tick.
     // Blur flushes local edits — covers hide-to-tray (hide triggers a
     // blur but no app-lifecycle event on desktop).
+    // Focus also repaints the overdue badge: cold-start's first paint can
+    // race taskbar setup and fail silently, and focus always follows it.
     if (isDesktopApp && _windowListener == null) {
       final listener = _SyncWindowListener(
-        onFocus: () => ref.read(syncEngineProvider)?.syncNow(),
+        onFocus: () {
+          ref.read(syncEngineProvider)?.syncNow();
+          try {
+            unawaited(
+                AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
+          } catch (_) {
+            // Best-effort.
+          }
+        },
         onBlur: () =>
             ref.read(syncEngineProvider)?.syncNow(pushOnly: true),
       );

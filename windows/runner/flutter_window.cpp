@@ -139,6 +139,9 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   HGDIOBJ old_mask = SelectObject(mask_dc, mask);
 
   const RECT rc{0, 0, kSize, kSize};
+  // Inset disc: a transparent margin reads rounder at 16px (WhatsApp-style
+  // separation) than a full-bleed disc whose rim touches the bitmap edge.
+  const int m = kSize / 12;
   HBRUSH white = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
   HBRUSH black = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
   HPEN noPen = static_cast<HPEN>(GetStockObject(NULL_PEN));
@@ -147,21 +150,21 @@ HICON FlutterWindow::CreateBadgeIcon(int count) {
   FillRect(mask_dc, &rc, white);
   SelectObject(mask_dc, black);
   SelectObject(mask_dc, noPen);
-  Ellipse(mask_dc, 0, 0, kSize, kSize);
+  Ellipse(mask_dc, m, m, kSize - m, kSize - m);
   // Color: iOS badge red everywhere, so downscaled rim pixels blend
   // red-on-red. The mask still clips everything outside the disc.
   HBRUSH red = CreateSolidBrush(RGB(255, 59, 48));
   FillRect(dc, &rc, red);
   SelectObject(dc, red);
   SelectObject(dc, noPen);
-  Ellipse(dc, 0, 0, kSize, kSize);
+  Ellipse(dc, m, m, kSize - m, kSize - m);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(255, 255, 255));
   // iOS proportions: ultra-heavy digits ~55-60% of disc diameter, tiered so
   // two digits and "99+" still fit. Grayscale AA survives the downscale to
   // 16px; ClearType subpixels turn to color mush.
   const int fontHeight =
-      text.length() > 2 ? 28 : (text.length() > 1 ? 38 : 50);
+      text.length() > 2 ? 26 : (text.length() > 1 ? 34 : 44);
   HFONT font = CreateFontW(fontHeight, 0, 0, 0, FW_BLACK, FALSE,
                            FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                            CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
