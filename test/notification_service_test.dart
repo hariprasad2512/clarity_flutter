@@ -89,4 +89,50 @@ void main() {
       expect(NotificationService.snoozeActionId, 'CLARITY_SNOOZE');
     });
   });
+
+  group('NotificationService.parseActionResponse', () {
+    const done = 'CLARITY_MARK_DONE';
+    const snooze = 'CLARITY_SNOOZE';
+    const taskId = '123e4567-e89b-12d3-a456-426614174000';
+
+    test('Android/iOS/Linux: clean action id + payload task id', () {
+      expect(
+        NotificationService.parseActionResponse(done, taskId),
+        (action: done, taskId: taskId),
+      );
+      expect(
+        NotificationService.parseActionResponse(snooze, taskId),
+        (action: snooze, taskId: taskId),
+      );
+    });
+
+    test('Windows: ACTION:<taskId> activation args recover both halves', () {
+      // The Windows plugin echoes raw activation args as both payload and
+      // actionId; schedule() bakes the task id into button arguments.
+      expect(
+        NotificationService.parseActionResponse('$done:$taskId', '$done:$taskId'),
+        (action: done, taskId: taskId),
+      );
+      expect(
+        NotificationService.parseActionResponse(
+            '$snooze:$taskId', 'ignored-payload'),
+        (action: snooze, taskId: taskId),
+      );
+    });
+
+    test('body tap and garbage yield no task (ignored by caller)', () {
+      // Windows body tap: launch args are the bare task id, no action.
+      final body = NotificationService.parseActionResponse(taskId, taskId);
+      expect(body.taskId, taskId);
+      expect(body.action, isNot(equals(done)));
+      expect(body.action, isNot(equals(snooze)));
+      // Null/empty input never dispatches.
+      expect(NotificationService.parseActionResponse(null, taskId).taskId,
+          isNull);
+      expect(
+          NotificationService.parseActionResponse('', taskId).taskId, isNull);
+      expect(NotificationService.parseActionResponse('$done:', taskId).taskId,
+          isNull);
+    });
+  });
 }

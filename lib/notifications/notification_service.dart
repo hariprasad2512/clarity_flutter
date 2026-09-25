@@ -56,6 +56,39 @@ class NotificationService {
   Future<void> Function(String taskId)? onMarkDone;
   Future<void> Function(String taskId)? onSnooze;
 
+  /// Latest action response that arrived before main.dart wired the
+  /// handlers (cold start via a notification button). Replayed by
+  /// [drainPendingActions]; at most one is ever outstanding.
+  NotificationResponse? _pendingResponse;
+
+  /// Splits a raw action callback into (action, taskId).
+  ///
+  /// Android/iOS/Linux deliver a clean [actionId] ('CLARITY_MARK_DONE')
+  /// with the task UUID in [payload]. The Windows plugin instead echoes
+  /// the toast's raw activation arguments as *both* payload and actionId —
+  /// and button arguments carry no task id at all — so [schedule] bakes
+  /// `'ACTION:<taskId>'` into Windows button arguments and this parser
+  /// recovers both halves. ':' is safe: action ids are constants and task
+  /// ids are UUIDs. Returns taskId null when nothing actionable arrived
+  /// (plain body tap on Windows yields the bare task id as action, which
+  /// matches no action and is ignored by the caller).
+  static ({String action, String? taskId}) parseActionResponse(
+    String? actionId,
+    String? payload,
+  ) {
+    final raw = actionId ?? '';
+    final sep = raw.indexOf(':');
+    if (sep >= 0) {
+      final taskId = raw.substring(sep + 1);
+      return (
+        action: raw.substring(0, sep),
+        taskId: taskId.isEmpty ? null : taskId
+      );
+    }
+    if (raw.isEmpty) return (action: '', taskId: null);
+    return (action: raw, taskId: payload);
+  }
+
   /// Whether this platform can schedule. Web has no scheduler backend.
   static bool get isSupported => !kIsWeb;
 
@@ -242,7 +275,16 @@ class NotificationService {
           iOS: const DarwinNotificationDetails(),
           macOS: const DarwinNotificationDetails(),
           linux: LinuxNotificationDetails(),
-          windows: const WindowsNotificationDetails(),
+          windows: WindowsNotificationDetails(
+            images: <WindowsImage>[
+              WindowsImage(
+                WindowsImage.getAssetUri('assets/tray/tray_icon.png'),
+                altText: 'Clarity',
+                placement: WindowsImagePlacement.appLogoOverride,
+                crop: WindowsImageCrop.circle,
+              ),
+            ],
+          ),
         ),
       );
     } catch (_) {
@@ -309,13 +351,25 @@ class NotificationService {
           ),
           windows: WindowsNotificationDetails(
             actions: <WindowsAction>[
-              const WindowsAction(
+              // Arguments carry the task id: the Windows plugin echoes the
+              // raw activation args as both payload and actionId, so a bare
+              // action id would lose which task was tapped. Parsed back by
+              // parseActionResponse (task ids are UUIDs — no ':' inside).
+              WindowsAction(
                 content: 'Mark Done',
-                arguments: markDoneActionId,
+                arguments: '$markDoneActionId:${task.id}',
               ),
               WindowsAction(
                 content: snoozeLabel(snoozeMinutes),
-                arguments: snoozeActionId,
+                arguments: '$snoozeActionId:${task.id}',
+              ),
+            ],
+            images: <WindowsImage>[
+              WindowsImage(
+                WindowsImage.getAssetUri('assets/tray/tray_icon.png'),
+                altText: 'Clarity',
+                placement: WindowsImagePlacement.appLogoOverride,
+                crop: WindowsImageCrop.circle,
               ),
             ],
           ),
@@ -431,9 +485,18 @@ class NotificationService {
     }
   }
 
-  void _onResponse(NotificationResponse response) {    final taskId = response.payload;
+  void _onResponse(NotificationResponse response) {
+    final parsed = parseActionResponse(response.actionId, response.payload);
+    final taskId = parsed.taskId;
     if (taskId == null || taskId.isEmpty) return;
-    switch (response.actionId) {
+    // Cold start: the tap can arrive before main.dart assigns the
+    // handlers. Stash it — drainPendingActions() replays after wiring
+    // instead of dropping the user's tap.
+    if (onMarkDone == null && onSnooze == null) {
+      _pendingResponse = response;
+      return;
+    }
+    switch (parsed.action) {
       case markDoneActionId:
         onMarkDone?.call(taskId);
       case snoozeActionId:
@@ -441,6 +504,27 @@ class NotificationService {
       default:
         // Default tap: the OS already foregrounds the app. Nothing to do.
         break;
+    }
+  }
+
+  /// Replays a pre-wiring action tap, then consumes a cold-start launch
+  /// (app opened *by* a notification tap — the response may only be
+  /// visible via launch details, never the stream). Called once from
+  /// main.dart after the action handlers are assigned. Never throws.
+  Future<void> drainPendingActions() async {
+    if (!_ready) return;
+    try {
+      final stashed = _pendingResponse;
+      _pendingResponse = null;
+      if (stashed != null) _onResponse(stashed);
+      final launch =
+          await _plugin.getNotificationAppLaunchDetails();
+      final response = launch?.notificationResponse;
+      if (launch?.didNotificationLaunchApp == true && response != null) {
+        _onResponse(response);
+      }
+    } catch (_) {
+      // Best-effort.
     }
   }
 
@@ -456,6 +540,9 @@ class NotificationService {
             DarwinNotificationAction.plain(
               snoozeActionId,
               snoozeLabel(snoozeMinutes),
+              // Foreground like Mark Done: a suspended macOS app reliably
+              // delivers foreground actions; background ones can be dropped.
+              options: const {DarwinNotificationActionOption.foreground},
             ),
           ],
         ),

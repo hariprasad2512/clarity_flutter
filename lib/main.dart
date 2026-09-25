@@ -298,6 +298,10 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     notifications.onSnooze = (id) => ref
         .read(taskListProvider.notifier)
         .snoozeById(id, ref.read(settingsProvider).snoozeMinutes);
+    // Replay a notification-button tap that launched the app before the
+    // handlers above were assigned (cold start); otherwise the tap is lost
+    // and it looks like the button "just opens the app".
+    unawaited(notifications.drainPendingActions());
     Future(() async {
       await notifications.requestPermission();
       if (!mounted) return;
