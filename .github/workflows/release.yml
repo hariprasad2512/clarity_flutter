@@ -77,7 +77,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/clarity-release.jks
+            # Tolerant decode: strip PEM armor (-----BEGIN/END-----) and all
+            # whitespace/CR so Notepad-pasted or wrapped values still work.
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" \
+              | sed -e '/^-/d' -e 's/[[:space:]]//g' \
+              | base64 -d > android/clarity-release.jks
+            # Sanity: a JKS/PKCS12 file must be non-empty.
+            test -s android/clarity-release.jks
             {
               echo "storeFile=../clarity-release.jks"
               echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}"
