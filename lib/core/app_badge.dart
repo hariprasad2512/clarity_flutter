@@ -1,12 +1,12 @@
 import 'dart:io';
 
+import 'package:app_badge_plus/app_badge_plus.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_app_badger/flutter_app_badger.dart';
 
 /// Red overdue-count badge on the app icon, all desktop/mobile platforms.
 ///
-/// * Android/macOS: `flutter_app_badger` (system-red badge; Android launchers
-///   vary — some show dots only).
+/// * Android/macOS: `app_badge_plus` (system-red badge; Android launchers
+///   vary — some show dots only). `updateBadge(0)` clears.
 /// * Windows: taskbar overlay icon painted natively (red circle, white
 ///   number) via the `clarity.windows.badge` channel in the runner.
 /// * Web/Linux: no-op.
@@ -30,11 +30,7 @@ class AppBadgeService {
         return;
       }
       if (Platform.isAndroid || Platform.isMacOS || Platform.isIOS) {
-        if (count == 0) {
-          await FlutterAppBadger.removeBadge();
-        } else {
-          await FlutterAppBadger.updateBadgeCount(count);
-        }
+        await AppBadgePlus.updateBadge(count);
       }
     } catch (_) {
       // Best-effort: unsupported launcher, missing plugin, headless test.
