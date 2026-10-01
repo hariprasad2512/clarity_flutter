@@ -216,18 +216,6 @@ class _TaskListState extends ConsumerState<TaskList> {
                   },
                 ),
         ),
-        // Store footer (desktop only; mobile stays uncluttered).
-        if (isDesktopApp)
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Text(
-              'Local store · Hive',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
       ],
     );
   }
