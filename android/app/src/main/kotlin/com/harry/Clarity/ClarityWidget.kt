@@ -38,8 +38,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Clarity home-screen widget v3 (Android). Three store sizes (Small 3 rows,
- * Medium 4, Large 6) with Google-Tasks rhythm: switchable Today/Inbox
+ * Clarity home-screen widget v4 (Android). Four store entries: QuickAdd
+ * 1x1 tile plus Small (2x2, 3 rows), Medium (4 rows) and Large (6 rows)
+ * task lists with Google-Tasks rhythm: switchable Today/Inbox
  * header, real strikethrough titles on completed rows (U+0336 combining
  * stroke — Glance text has no strike style), red overdue labels.
  *
@@ -275,8 +276,10 @@ class ToggleStrikeAction : ActionCallback {
 }
 
 /**
- * Quick-add tile (replaces the small list widget): a centered ＋ that
- * deep-links straight into the composer sheet. No task data needed.
+ * Quick-add tile (Small 1x1 slot): a centered ＋ with a "Quick Add"
+ * caption that deep-links straight into the composer sheet. No task
+ * data needed — static content, but still re-rendered on refresh calls
+ * so the tile never goes stale.
  */
 class ClarityQuickAddWidget : GlanceAppWidget() {
 
@@ -295,14 +298,27 @@ class ClarityQuickAddWidget : GlanceAppWidget() {
                             Uri.parse("com.harry.Clarity://compose"))),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        "+",
-                        style = TextStyle(
-                            fontSize = 48.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = GlanceTheme.colors.onPrimaryContainer,
-                        ),
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalAlignment = Alignment.Vertical.CenterVertically,
+                    ) {
+                        Text(
+                            "＋",
+                            style = TextStyle(
+                                fontSize = 40.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = GlanceTheme.colors.onPrimaryContainer,
+                            ),
+                        )
+                        Text(
+                            "Quick Add",
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = GlanceTheme.colors.onPrimaryContainer,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -312,6 +328,12 @@ class ClarityQuickAddWidget : GlanceAppWidget() {
 class ClarityWidgetSmallReceiver :
     es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityQuickAddWidget>() {
     override val glanceAppWidget = ClarityQuickAddWidget()
+}
+
+/** Small list (2x2, 3 rows): same task list as Medium/Large, compact. */
+class ClarityWidgetSmallListReceiver :
+    es.antonborri.home_widget.HomeWidgetGlanceWidgetReceiver<ClarityWidget>() {
+    override val glanceAppWidget = ClarityWidget()
 }
 
 class ClarityWidgetMediumReceiver :
