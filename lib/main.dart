@@ -14,6 +14,7 @@ import 'auth/auth_service.dart';
 import 'core/app_badge.dart';
 import 'core/app_config.dart';
 import 'core/app_store.dart';
+import 'core/task_model.dart';
 import 'data/local_store.dart';
 import 'desktop/desktop.dart';
 import 'desktop/hotkey_service.dart';
@@ -113,6 +114,7 @@ Future<void> main(List<String> args) async {
         final task = await container
             .read(taskListProvider.notifier)
             .add(payload.text, manualDate: payload.due);
+        if (task != null) showTaskAddedToast();
         return task != null;
       }
       if (call.method == QuickAddHost.closingMethod) {
@@ -189,6 +191,23 @@ Future<void> main(List<String> args) async {
 
 /// Global navigator for context-free routing (widget compose taps).
 final appNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Context-free "Task added" toast for add paths outside the widget tree
+/// (desktop QuickAdd panel submit, Android widget compose deep link).
+/// No-op when the navigator isn't mounted yet. Best-effort by design.
+void showTaskAddedToast() {
+  final ctx = appNavigatorKey.currentContext;
+  if (ctx == null) return;
+  ScaffoldMessenger.of(ctx)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      const SnackBar(
+        content: Text('Task added'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+}
 
 class ClarityApp extends StatelessWidget {
   const ClarityApp({super.key});
@@ -424,18 +443,34 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       if (ctx != null && ctx.mounted) showTaskComposer(ctx);
     }
 
+    Future<void> showWindow() async {
+      try {
+        await windowManager.show();
+        await windowManager.focus();
+      } catch (_) {
+        // Best-effort.
+      }
+    }
+
+    Future<void> showWithFilter(TaskFilter filter) async {
+      try {
+        ref.read(filterProvider.notifier).set(filter);
+      } catch (_) {
+        // Best-effort (filter is UI-only).
+      }
+      await showWindow();
+    }
+
     await ref.read(hotkeyServiceProvider).init(summonQuickAdd);
+    final counts = ref.read(countsProvider);
     await tray.init(
       quickAdd: summonQuickAdd,
-      show: () async {
-        try {
-          await windowManager.show();
-          await windowManager.focus();
-        } catch (_) {
-          // Best-effort.
-        }
-      },
+      showToday: () => showWithFilter(TaskFilter.today),
+      showInbox: () => showWithFilter(TaskFilter.inbox),
+      show: showWindow,
       quit: () => tray.quit(),
+      todayCount: counts.today,
+      inboxCount: counts.inbox,
     );
     // Pull-on-focus: clicking back into the window after editing on the
     // phone pulls immediately instead of waiting for the next poll tick.
@@ -540,6 +575,16 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     // ref.listen is build-only; the badge then tracks every task change.
     ref.listen<int>(overdueCountProvider, (_, count) {
       unawaited(AppBadgeService.updateBadge(count));
+    });
+    // Tray menu counts stay live (Today (n) / Inbox (n)). No-op until
+    // tray init succeeds; safe in tests via TrayService's ready guard.
+    ref.listen<({int today, int inbox})>(countsProvider, (_, counts) {
+      unawaited(
+        ref.read(trayServiceProvider).refreshMenu(
+              todayCount: counts.today,
+              inboxCount: counts.inbox,
+            ),
+      );
     });
     return widget.child;
   }

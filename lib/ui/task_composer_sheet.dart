@@ -111,11 +111,26 @@ class _ComposerSheetState extends ConsumerState<_ComposerSheet>
     final text = _ctrl.text.trim();
     if (text.isEmpty || _saving) return;
     setState(() => _saving = true);
-    await ref
+    final task = await ref
         .read(taskListProvider.notifier)
         .add(text, manualDate: _manualDate);
     if (!mounted) return;
+    // Capture the messenger before popping: the sheet's route goes away
+    // but the app-level ScaffoldMessenger outlives it, so the toast
+    // stays visible underneath.
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
+    if (task != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Task added'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
   }
 
   @override

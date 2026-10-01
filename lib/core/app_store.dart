@@ -200,6 +200,32 @@ class TaskListNotifier extends Notifier<List<TodoTask>> {
     await _refreshWidget();
   }
 
+  /// Restores a just-deleted task (delete-confirm Undo). Keeps the original
+  /// id so cross-device sync converges on the same row; withdraws the id
+  /// from the delete outbox so the push phase doesn't hard-delete it right
+  /// back on the server. Mirrors toggle's side effects (persist +
+  /// reschedule + push + widget) so the restore propagates.
+  Future<void> restoreTask(TodoTask task) async {
+    task.touch();
+    await ref.read(localStoreProvider).put(task);
+    state = [...state.where((t) => t.id != task.id), task];
+    try {
+      final queued = await loadDeleteOutbox(ref.read(sharedPrefsProvider));
+      if (queued.remove(task.id)) {
+        await saveDeleteOutbox(queued, ref.read(sharedPrefsProvider));
+      }
+    } catch (_) {
+      // Best-effort.
+    }
+    if (task.isCompleted || task.dueDate == null) {
+      await _notifications().cancel(task.id);
+    } else {
+      await _notifications().schedule(task, snoozeMinutes: _snooze());
+    }
+    _syncSoon();
+    await _refreshWidget();
+  }
+
   /// Privacy wipe on sign-out (Phase 3). Mirrors `AuthService.signOut`.
   /// Also clears system notifications for the wiped tasks.
   Future<void> clearAll() async {
