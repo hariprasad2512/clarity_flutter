@@ -61,13 +61,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Workspace renders in the mobile default tab (Inbox).
-    expect(find.text('Inbox'), findsWidgets);
+    // Workspace renders in the mobile default tab (Today).
+    expect(find.text('Today'), findsWidgets);
 
-    // Drawer holds the filter list on narrow screens.
+    // Drawer holds the filter list on narrow screens (header already
+    // shows Today, so it appears twice once the drawer opens).
     await tester.tap(find.byTooltip('Open navigation menu'));
     await tester.pumpAndSettle();
-    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
+    expect(find.text('Inbox'), findsOneWidget);
     expect(find.text('Done'), findsOneWidget);
     await tester.tapAt(const Offset(350, 450)); // scrim dismisses drawer
     await tester.pumpAndSettle();
@@ -77,7 +79,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.widgetWithText(TextField, 'New task'), findsOneWidget);
 
-    // "today" keeps it visible in the default Inbox tab. Save via the
+    // "today" keeps it visible in the default Today tab. Save via the
     // button (keyboard actions are covered by the composer unit path).
     await tester.enterText(
       find.widgetWithText(TextField, 'New task'),
