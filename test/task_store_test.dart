@@ -81,6 +81,27 @@ void main() {
       );
     });
 
+    test('restoreTask undoes a delete with the same id', () async {
+      final c = await _container(store);
+      final notifier = c.read(taskListProvider.notifier);
+      final a = await notifier.add('Doomed');
+      final snapshot = TodoTask(
+        id: a!.id,
+        title: a.title,
+        dueDate: a.dueDate,
+        isCompleted: a.isCompleted,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
+        needsSync: a.needsSync,
+      );
+      await notifier.deleteByIds([a.id]);
+      expect(c.read(taskListProvider), isEmpty);
+      await notifier.restoreTask(snapshot);
+      expect(c.read(taskListProvider).map((t) => t.id), [a.id]);
+      expect(store.all.single.title, 'Doomed');
+      expect(store.all.single.needsSync, isTrue);
+    });
+
     test('updateTask edits title and due, stamps sync', () async {
       final c = await _container(store);
       final notifier = c.read(taskListProvider.notifier);

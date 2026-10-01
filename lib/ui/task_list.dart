@@ -46,6 +46,15 @@ class _TaskListState extends ConsumerState<TaskList> {
     setState(() => _manualDate = null);
     _captureFocus.requestFocus();
     ref.read(searchProvider.notifier).set(_searchCtrl.text);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Task added'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   Future<void> _openSchedule() async {
@@ -308,6 +317,64 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
     });
   }
 
+  /// Swipe-to-delete guard: "Are you sure?" on every platform. Returns
+  /// true only for an explicit Delete tap; dismiss/Cancel keeps the row.
+  Future<bool> _confirmDelete(BuildContext context, TodoTask task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this task?'),
+        content: Text(
+          'Are you sure you want to delete "${task.title}"?',
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  /// Deletes then offers Undo for a few seconds. The stashed [TodoTask]
+  /// keeps its id so Undo converges cleanly with sync (outbox withdrawn).
+  Future<void> _deleteWithUndo(BuildContext context, TodoTask task) async {
+    final snapshot = TodoTask(
+      id: task.id,
+      title: task.title,
+      dueDate: task.dueDate,
+      isCompleted: task.isCompleted,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      needsSync: task.needsSync,
+    );
+    await ref.read(taskListProvider.notifier).deleteByIds([task.id]);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Task deleted'),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () =>
+                ref.read(taskListProvider.notifier).restoreTask(snapshot),
+          ),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
@@ -322,8 +389,8 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
         padding: const EdgeInsets.only(right: 20),
         child: const Icon(Icons.delete, color: Colors.white),
       ),
-      onDismissed: (_) =>
-          ref.read(taskListProvider.notifier).deleteByIds([task.id]),
+      confirmDismiss: (_) => _confirmDelete(context, task),
+      onDismissed: (_) => _deleteWithUndo(context, task),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _onTileTap,
