@@ -11,7 +11,9 @@ import '../core/task_model.dart';
 /// Home-screen widget data bridge (Android Glance in Phase 5; iOS WidgetKit
 /// deferred — needs a paid Apple Developer account).
 ///
-/// Widget v2 contract:
+/// Widget v4 contract:
+/// * Four store entries — QuickAdd 1x1 tile plus Small (3 rows), Medium
+///   (4 rows) and Large (6 rows) task lists.
 /// * Two switchable lists — Today (open Today/overdue) and Inbox (open
 ///   incomplete) — toggled from the header without opening the app.
 /// * Tasks completed today linger struck (● + dimmed) until midnight
@@ -22,9 +24,10 @@ import '../core/task_model.dart';
 ///   Hive directly (single-isolate box locks) — it renders prefs JSON.
 class WidgetService {
   /// Fully-qualified Glance receivers (must match AndroidManifest).
-  /// QuickAdd tile + Medium/Large lists update together.
+  /// QuickAdd tile + Small/Medium/Large lists update together.
   static const androidReceivers = [
-    'com.harry.Clarity.ClarityWidgetQuickAddReceiver',
+    'com.harry.Clarity.ClarityWidgetSmallReceiver',
+    'com.harry.Clarity.ClarityWidgetSmallListReceiver',
     'com.harry.Clarity.ClarityWidgetMediumReceiver',
     'com.harry.Clarity.ClarityWidgetLargeReceiver',
   ];

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="clarity_widget_desc">Due tasks with tap-to-complete</string>
+    <string name="clarity_widget_list_desc">Tasks with Today/Inbox switch and tap-to-complete</string>
+    <string name="clarity_widget_quickadd_desc">Quick Add — jump straight into the task composer</string>
 </resources>

@@ -31,13 +31,20 @@ class TrayService with TrayListener {
       __windows ??= _windowsOverride ?? windowManager;
 
   static const quickAddKey = 'quick_add';
+  static const todayKey = 'show_today';
+  static const inboxKey = 'show_inbox';
   static const showKey = 'show';
   static const quitKey = 'quit';
 
   bool _ready = false;
   bool _quitting = false;
+  bool _popupOpen = false;
+  int _todayCount = 0;
+  int _inboxCount = 0;
 
   Future<void> Function()? onQuickAdd;
+  Future<void> Function()? onShowToday;
+  Future<void> Function()? onShowInbox;
   Future<void> Function()? onShow;
   Future<void> Function()? onQuit;
 
@@ -52,8 +59,12 @@ class TrayService with TrayListener {
 
   static Menu buildMenu({
     required void Function() quickAdd,
+    required void Function() showToday,
+    required void Function() showInbox,
     required void Function() show,
     required void Function() quit,
+    int todayCount = 0,
+    int inboxCount = 0,
   }) =>
       Menu(items: [
         MenuItem(
@@ -62,28 +73,43 @@ class TrayService with TrayListener {
           onClick: (_) => quickAdd(),
         ),
         MenuItem.separator(),
+        MenuItem(
+          key: todayKey,
+          label: 'Show Today ($todayCount)',
+          onClick: (_) => showToday(),
+        ),
+        MenuItem(
+          key: inboxKey,
+          label: 'Show Inbox ($inboxCount)',
+          onClick: (_) => showInbox(),
+        ),
+        MenuItem.separator(),
         MenuItem(key: showKey, label: 'Show window', onClick: (_) => show()),
         MenuItem(key: quitKey, label: 'Quit Clarity', onClick: (_) => quit()),
       ]);
 
   Future<void> init({
     required Future<void> Function() quickAdd,
+    required Future<void> Function() showToday,
+    required Future<void> Function() showInbox,
     required Future<void> Function() show,
     required Future<void> Function() quit,
+    int todayCount = 0,
+    int inboxCount = 0,
   }) async {
     if (!isDesktopApp || _ready) return;
     onQuickAdd = quickAdd;
+    onShowToday = showToday;
+    onShowInbox = showInbox;
     onShow = show;
     onQuit = quit;
+    _todayCount = todayCount;
+    _inboxCount = inboxCount;
     try {
       _tray.addListener(this);
       await _tray.setIcon(iconAsset);
       await _tray.setToolTip('Clarity — minimal todo');
-      await _tray.setContextMenu(buildMenu(
-        quickAdd: () => onQuickAdd?.call(),
-        show: () => onShow?.call(),
-        quit: () => onQuit?.call(),
-      ));
+      await _applyMenu();
       await _windows.setPreventClose(true);
       _windows.addListener(_WindowCloseListener(() async {
         if (_quitting) return;
@@ -97,14 +123,59 @@ class TrayService with TrayListener {
     }
   }
 
-  /// True quit: allow close, then destroy. Called from the tray menu.
+  Menu _currentMenu() => buildMenu(
+        quickAdd: () => onQuickAdd?.call(),
+        showToday: () => onShowToday?.call(),
+        showInbox: () => onShowInbox?.call(),
+        show: () => onShow?.call(),
+        quit: () => onQuit?.call(),
+        todayCount: _todayCount,
+        inboxCount: _inboxCount,
+      );
+
+  Future<void> _applyMenu() => _tray.setContextMenu(_currentMenu());
+
+  /// Live Today/Inbox counts in the menu (Today (n) / Inbox (n)).
+  /// No-op until [init] succeeds and in tests; failures never propagate.
+  Future<void> refreshMenu({required int todayCount, required int inboxCount}) async {
+    if (!_ready) return;
+    _todayCount = todayCount;
+    _inboxCount = inboxCount;
+    try {
+      await _applyMenu();
+    } catch (e) {
+      debugPrint('Clarity tray menu refresh failed: $e');
+    }
+  }
+
+  /// True quit: allow close, then destroy. Called ONLY from the tray
+  /// menu's Quit item (never from icon clicks — those only pop the menu
+  /// on macOS or toggle visibility elsewhere). Re-entrancy guarded so a
+  /// double-click on Quit can't wedge the shutdown path.
   Future<void> quit() async {
+    if (_quitting) return;
     _quitting = true;
     try {
       await _windows.setPreventClose(false);
       await _windows.destroy();
-    } catch (_) {
-      // Best-effort.
+    } catch (e) {
+      debugPrint('Clarity tray quit failed: $e');
+    }
+  }
+
+  /// macOS menu popup, serialized: overlapping left/right clicks used to
+  /// race `popUpContextMenu` and could tear down the menu (seen as the
+  /// app "quitting" when tapping the menu-bar icon). Never touches the
+  /// window or the quit path.
+  Future<void> _popUpMenu() async {
+    if (_popupOpen) return;
+    _popupOpen = true;
+    try {
+      await _tray.popUpContextMenu();
+    } catch (e) {
+      debugPrint('Clarity tray popup failed: $e');
+    } finally {
+      _popupOpen = false;
     }
   }
 
@@ -115,7 +186,7 @@ class TrayService with TrayListener {
     () async {
       try {
         if (Platform.isMacOS) {
-          await _tray.popUpContextMenu();
+          await _popUpMenu();
           return;
         }
         if (await _windows.isVisible()) {
@@ -124,10 +195,18 @@ class TrayService with TrayListener {
           await _windows.show();
           await _windows.focus();
         }
-      } catch (_) {
-        // Best-effort.
+      } catch (e) {
+        debugPrint('Clarity tray click failed: $e');
       }
     }();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    // Right-click always pops the menu (macOS convention; harmless
+    // elsewhere). Previously unhandled — the OS default could dismiss
+    // the icon interaction and look like a quit.
+    _popUpMenu();
   }
 
   @override
@@ -135,6 +214,10 @@ class TrayService with TrayListener {
     switch (menuItem.key) {
       case quickAddKey:
         onQuickAdd?.call();
+      case todayKey:
+        onShowToday?.call();
+      case inboxKey:
+        onShowInbox?.call();
       case showKey:
         onShow?.call();
       case quitKey:

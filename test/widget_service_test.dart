@@ -17,6 +17,21 @@ TodoTask _task(String id, String title,
 }
 
 void main() {
+  group('WidgetService receivers (widget v4 contract)', () {
+    test('QuickAdd tile + Small/Medium/Large lists stay in sync', () {
+      expect(WidgetService.androidReceivers, hasLength(4));
+      expect(
+        WidgetService.androidReceivers,
+        containsAll([
+          'com.harry.Clarity.ClarityWidgetSmallReceiver',
+          'com.harry.Clarity.ClarityWidgetSmallListReceiver',
+          'com.harry.Clarity.ClarityWidgetMediumReceiver',
+          'com.harry.Clarity.ClarityWidgetLargeReceiver',
+        ]),
+      );
+    });
+  });
+
   group('WidgetService.payloadFor (widget v2 contract)', () {
     List<Map<String, String>> listOf(
             Map<String, Object> payload, String key) =>
