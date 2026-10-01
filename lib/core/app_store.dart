@@ -344,9 +344,9 @@ final taskListProvider =
 // -- filtering ---------------------------------------------------------------
 
 class FilterNotifier extends Notifier<TaskFilter> {
-  // Mobile opens on Inbox (capture-first flow); desktop keeps Today.
+  // Capture-first everywhere: Inbox is the default on all platforms.
   @override
-  TaskFilter build() => isDesktopApp ? TaskFilter.today : TaskFilter.inbox;
+  TaskFilter build() => TaskFilter.inbox;
   void set(TaskFilter f) => state = f;
 }
 
@@ -393,6 +393,13 @@ final countsProvider = Provider<({int today, int inbox})>((ref) {
     today: tasks.where((t) => t.isDueTodayOrOverdue).length,
     inbox: tasks.where((t) => !t.isCompleted).length,
   );
+});
+
+/// Red app-icon badge: strictly overdue (before today), incomplete.
+/// Separate provider so the sidebar record shape never churns.
+final overdueCountProvider = Provider<int>((ref) {
+  final tasks = ref.watch(taskListProvider);
+  return tasks.where((t) => t.isOverdue).length;
 });
 
 /// Completed-today rows for the inline section below open tasks

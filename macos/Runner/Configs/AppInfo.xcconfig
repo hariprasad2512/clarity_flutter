@@ -7,9 +7,8 @@
 // The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = Clarity
 
-// The application's bundle identifier (matches Android applicationId and
-// the OAuth callback scheme com.harry.Clarity://oauth-callback).
+// The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.harry.Clarity
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 Clarity. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Hariprasad. All rights reserved.

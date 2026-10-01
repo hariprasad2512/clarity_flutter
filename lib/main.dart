@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'auth/auth_service.dart';
+import 'core/app_badge.dart';
 import 'core/app_config.dart';
 import 'core/app_store.dart';
 import 'core/task_model.dart';
@@ -47,8 +48,25 @@ Future<void> main(List<String> args) async {
       await quickAddWindowMain(self);
       return;
     }
+    // Shared desktop default. Main window only — the panel sizes itself.
+    try {
+      await windowManager.setMinimumSize(const Size(360, 520));
+      await windowManager.setSize(const Size(900, 620));
+      await windowManager.center();
+    } catch (_) {
+      // Best-effort (headless).
+    }
   }
-  final store = await LocalStore.open();
+  LocalStore store;
+  try {
+    store = await LocalStore.open();
+  } catch (_) {
+    // A second Clarity window (e.g. a stale shortcut launching another
+    // copy) can't share Hive's single-isolate boxes — without this guard
+    // it sits at a blank white window. Say so and get out of the way.
+    runApp(const _AlreadyRunningApp());
+    return;
+  }
   final prefs = await SharedPreferences.getInstance();
   final notifications = NotificationService();
   final snoozeMinutes = prefs.getInt(SettingsNotifier.snoozeKey);
@@ -90,7 +108,7 @@ Future<void> main(List<String> args) async {
     final self = await WindowController.fromCurrentEngine();
     container.read(quickAddHostProvider).mainWindowId = self.windowId;
     await self.setWindowMethodHandler((call) async {
-      if (call.method == 'quick_add_submit') {
+      if (call.method == QuickAddHost.submitMethod) {
         final payload = parseQuickAddPayload(call.arguments);
         if (payload == null) return false;
         final task = await container
@@ -98,6 +116,10 @@ Future<void> main(List<String> args) async {
             .add(payload.text, manualDate: payload.due);
         if (task != null) showTaskAddedToast();
         return task != null;
+      }
+      if (call.method == QuickAddHost.closingMethod) {
+        container.read(quickAddHostProvider).onPanelClosed();
+        return true;
       }
     });
   }
@@ -237,6 +259,8 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   bool _wired = false;
   Timer? _syncTimer;
   Timer? _syncRetryTimer;
+  Timer? _midnightTimer;
+  Timer? _badgeRetryTimer;
   final SyncBackoff _backoff = SyncBackoff();
   WindowListener? _windowListener;
   StreamSubscription<AuthState>? _authSub;
@@ -253,6 +277,8 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
     _syncRetryTimer?.cancel();
+    _midnightTimer?.cancel();
+    _badgeRetryTimer?.cancel();
     final listener = _windowListener;
     _windowListener = null;
     if (listener != null) {
@@ -305,6 +331,13 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     notifications.onSnooze = (id) => ref
         .read(taskListProvider.notifier)
         .snoozeById(id, ref.read(settingsProvider).snoozeMinutes);
+    // Replay a notification-button tap that launched the app before the
+    // handlers above were assigned (cold start); otherwise the tap is lost
+    // and it looks like the button "just opens the app".
+    unawaited(notifications.drainPendingActions());
+    // Red overdue badge follows every task change (mutations, sync,
+    // sign-out wipe) without touching any other wiring.
+    _scheduleMidnightRefresh();
     Future(() async {
       await notifications.requestPermission();
       if (!mounted) return;
@@ -312,6 +345,25 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
         ref.read(taskListProvider),
         snoozeMinutes: ref.read(settingsProvider).snoozeMinutes,
       );
+      // Initial badge paint (listener covers later changes). The first
+      // paint can race taskbar setup on cold start and fail silently, so
+      // two delayed repaints back it up (badge calls are idempotent).
+      void paintBadge() {
+        if (!mounted) return;
+        try {
+          unawaited(
+              AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
+        } catch (_) {
+          // Best-effort.
+        }
+      }
+
+      paintBadge();
+      _badgeRetryTimer?.cancel();
+      _badgeRetryTimer = Timer(const Duration(seconds: 10), () {
+        paintBadge();
+        _badgeRetryTimer = Timer(const Duration(seconds: 20), paintBadge);
+      });
       await ref
           .read(widgetServiceProvider)
           .refresh(ref.read(taskListProvider));
@@ -381,7 +433,16 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
   /// No-ops on mobile/web/tests via guards.
   Future<void> _initDesktop() async {
     final tray = ref.read(trayServiceProvider);
-    final summon = ref.read(quickAddHostProvider).summon;
+    // Panel failure is never silent: when the floating window can't be
+    // created (e.g. multi-window hiccup on Windows), fall back to the
+    // in-window composer so hotkey/tray always do SOMETHING visible.
+    Future<void> summonQuickAdd() async {
+      final ok = await ref.read(quickAddHostProvider).summon();
+      if (ok || !mounted) return;
+      final ctx = appNavigatorKey.currentContext;
+      if (ctx != null && ctx.mounted) showTaskComposer(ctx);
+    }
+
     Future<void> showWindow() async {
       try {
         await windowManager.show();
@@ -400,10 +461,10 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
       await showWindow();
     }
 
-    await ref.read(hotkeyServiceProvider).init(summon);
+    await ref.read(hotkeyServiceProvider).init(summonQuickAdd);
     final counts = ref.read(countsProvider);
     await tray.init(
-      quickAdd: summon,
+      quickAdd: summonQuickAdd,
       showToday: () => showWithFilter(TaskFilter.today),
       showInbox: () => showWithFilter(TaskFilter.inbox),
       show: showWindow,
@@ -415,9 +476,19 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     // phone pulls immediately instead of waiting for the next poll tick.
     // Blur flushes local edits — covers hide-to-tray (hide triggers a
     // blur but no app-lifecycle event on desktop).
+    // Focus also repaints the overdue badge: cold-start's first paint can
+    // race taskbar setup and fail silently, and focus always follows it.
     if (isDesktopApp && _windowListener == null) {
       final listener = _SyncWindowListener(
-        onFocus: () => ref.read(syncEngineProvider)?.syncNow(),
+        onFocus: () {
+          ref.read(syncEngineProvider)?.syncNow();
+          try {
+            unawaited(
+                AppBadgeService.updateBadge(ref.read(overdueCountProvider)));
+          } catch (_) {
+            // Best-effort.
+          }
+        },
         onBlur: () =>
             ref.read(syncEngineProvider)?.syncNow(pushOnly: true),
       );
@@ -458,6 +529,25 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
     }
   }
 
+  /// Day-boundary refresh: overdue/Today/badge/widget state is derived
+  /// from wall-clock dates, so re-read the store just past midnight.
+  /// Single-shot, rescheduled each fire; no-op when unmounted.
+  void _scheduleMidnightRefresh() {
+    _midnightTimer?.cancel();
+    final now = DateTime.now();
+    final next = DateTime(now.year, now.month, now.day + 1)
+        .add(const Duration(minutes: 1));
+    _midnightTimer = Timer(next.difference(now), () {
+      if (!mounted) return;
+      try {
+        ref.read(taskListProvider.notifier).refreshFromStore();
+      } catch (_) {
+        // Best-effort.
+      }
+      _scheduleMidnightRefresh();
+    });
+  }
+
   /// Cold-start via widget (e.g. QuickAdd tile while the app was dead).
   Future<void> _handleInitialWidgetUri() async {
     try {
@@ -482,6 +572,10 @@ class _BootstrapState extends ConsumerState<_Bootstrap>
 
   @override
   Widget build(BuildContext context) {
+    // ref.listen is build-only; the badge then tracks every task change.
+    ref.listen<int>(overdueCountProvider, (_, count) {
+      unawaited(AppBadgeService.updateBadge(count));
+    });
     // Tray menu counts stay live (Today (n) / Inbox (n)). No-op until
     // tray init succeeds; safe in tests via TrayService's ready guard.
     ref.listen<({int today, int inbox})>(countsProvider, (_, counts) {
@@ -519,6 +613,57 @@ class _SyncWindowListener extends WindowListener {
     } catch (_) {
       // Best-effort.
     }
+  }
+}
+
+/// Duplicate-instance screen: Hive boxes open in exactly one process, so a
+/// second Clarity copy can never boot its store. Shown instead of a blank
+/// white window; closing it ends the duplicate process.
+class _AlreadyRunningApp extends StatelessWidget {
+  const _AlreadyRunningApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Clarity is already running',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                const Text(
+                  'This extra window cannot open your tasks while the first '
+                  'copy is running. Close it and use the original window '
+                  '(check the system tray).',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () async {
+                    try {
+                      if (isDesktopApp) {
+                        await windowManager.destroy();
+                        return;
+                      }
+                    } catch (_) {
+                      // Fall through to exit.
+                    }
+                    exit(0);
+                  },
+                  child: const Text('Close this window'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

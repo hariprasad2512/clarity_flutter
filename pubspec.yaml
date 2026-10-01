@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.1.4+7
 
 environment:
   sdk: ^3.13.3
@@ -52,6 +52,7 @@ dependencies:
   home_widget: ^0.9.4
   workmanager: ^0.10.10
   url_launcher: ^6.3.2
+  app_badge_plus: ^1.3.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -76,7 +77,10 @@ flutter:
 
   # Tray icons (Phase 4). macOS uses the template pair; Windows the .ico;
   # Linux the 22px PNG. Loaded via rootBundle → temp file at runtime.
+  # Brand mark (green circle + check). Regenerate with
+  # `python3 tool/generate_logo_assets.py` after any logo tweak.
   assets:
+    - assets/logo/clarity_mark.png
     - assets/tray/tray_icon.png
     - assets/tray/tray_icon@2x.png
     - assets/tray/tray_icon_color@2x.png

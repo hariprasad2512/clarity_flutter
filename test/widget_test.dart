@@ -8,9 +8,9 @@ import 'package:clarity_flutter/data/local_store.dart';
 import 'package:clarity_flutter/main.dart';
 
 // NOTE: Hive/SharedPreferences setup lives in setUpAll (real async zone).
-// Inside testWidgets, FakeAsync is active: Hive's disk-flush futures only
-// complete inside runAsync, so the test waits on notifier state there and
-// pumps afterwards.
+// Inside testWidgets, FakeAsync is active: the composer Save writes to
+// Hive, whose completion needs BOTH real time (runAsync poll loop below)
+// and a fake-clock advance (pumpAndSettle afterwards).
 //
 // NOTE: tests run with FLUTTER_TEST set, so `isDesktopApp` is false and the
 // mobile UI is under test: + FAB → bottom-sheet composer (no capture bar).
@@ -25,7 +25,15 @@ void main() {
   });
 
   tearDownAll(() async {
-    await store.closeAndDelete();
+    // Hive CE's box close can wedge when writes were issued from the
+    // testWidgets FakeAsync zone (hangs the suite 12 min on CI). Bound it:
+    // the LocalStore close path itself is covered by task_store_test in a
+    // real async zone.
+    try {
+      await store.closeAndDelete().timeout(const Duration(seconds: 20));
+    } catch (e) {
+      debugPrint('widget_test teardown: closeAndDelete skipped ($e)');
+    }
   });
 
   testWidgets('offline smoke: sidebar filters render, FAB composer adds',
@@ -77,7 +85,9 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.widgetWithText(TextButton, 'Save'));
-    // Let Hive's disk flush + the notifier continuation run in real time.
+    // Let Hive's disk flush + the notifier continuation run in real time,
+    // then advance the fake clock so the write completes and the UI
+    // rebuilds.
     await tester.runAsync(() async {
       for (var i = 0;
           i < 400 && container.read(taskListProvider).isEmpty;
@@ -87,6 +97,7 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    expect(find.text('Smoke task'), findsOneWidget);
+    // Titles render via LinkText (RichText), not Text — findRichText.
+    expect(find.text('Smoke task', findRichText: true), findsOneWidget);
   });
 }

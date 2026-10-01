@@ -7,6 +7,7 @@ import '../core/app_store.dart';
 import '../desktop/desktop.dart';
 import '../desktop/quick_add_host.dart';
 import 'auth_view.dart';
+import 'clarity_logo.dart';
 import 'settings_view.dart';
 import 'sidebar.dart';
 import 'task_composer_sheet.dart';
@@ -32,10 +33,14 @@ class AppShell extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Desktop summons the floating Spotlight-style panel; mobile/web
-        // open the bottom-sheet composer (Google-Tasks style).
+        // open the bottom-sheet composer (Google-Tasks style). When the
+        // panel can't be created, fall back to the composer in-window.
         void quickAdd() {
           if (isDesktopApp) {
-            ref.read(quickAddHostProvider).summon();
+            () async {
+              final ok = await ref.read(quickAddHostProvider).summon();
+              if (!ok && context.mounted) showTaskComposer(context);
+            }();
           } else {
             showTaskComposer(context);
           }
@@ -79,7 +84,16 @@ class _NarrowLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Clarity'),
+        // Mark lives in the title so the auto drawer hamburger (leading)
+        // is preserved.
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClarityMark(size: 24),
+            SizedBox(width: 8),
+            Text('Clarity'),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Settings',

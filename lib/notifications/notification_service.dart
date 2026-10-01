@@ -56,6 +56,39 @@ class NotificationService {
   Future<void> Function(String taskId)? onMarkDone;
   Future<void> Function(String taskId)? onSnooze;
 
+  /// Latest action response that arrived before main.dart wired the
+  /// handlers (cold start via a notification button). Replayed by
+  /// [drainPendingActions]; at most one is ever outstanding.
+  NotificationResponse? _pendingResponse;
+
+  /// Splits a raw action callback into (action, taskId).
+  ///
+  /// Android/iOS/Linux deliver a clean [actionId] ('CLARITY_MARK_DONE')
+  /// with the task UUID in [payload]. The Windows plugin instead echoes
+  /// the toast's raw activation arguments as *both* payload and actionId —
+  /// and button arguments carry no task id at all — so [schedule] bakes
+  /// `'ACTION:<taskId>'` into Windows button arguments and this parser
+  /// recovers both halves. ':' is safe: action ids are constants and task
+  /// ids are UUIDs. Returns taskId null when nothing actionable arrived
+  /// (plain body tap on Windows yields the bare task id as action, which
+  /// matches no action and is ignored by the caller).
+  static ({String action, String? taskId}) parseActionResponse(
+    String? actionId,
+    String? payload,
+  ) {
+    final raw = actionId ?? '';
+    final sep = raw.indexOf(':');
+    if (sep >= 0) {
+      final taskId = raw.substring(sep + 1);
+      return (
+        action: raw.substring(0, sep),
+        taskId: taskId.isEmpty ? null : taskId
+      );
+    }
+    if (raw.isEmpty) return (action: '', taskId: null);
+    return (action: raw, taskId: payload);
+  }
+
   /// Whether this platform can schedule. Web has no scheduler backend.
   static bool get isSupported => !kIsWeb;
 
@@ -109,8 +142,10 @@ class NotificationService {
               AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(channel);
       _ready = true;
-    } catch (_) {
-      // Notifications are best-effort: never break the app.
+    } catch (e) {
+      // Notifications are best-effort: never break the app. Logged (not
+      // silent) so `flutter run` shows WHY alerts are dead on a platform.
+      debugPrint('Clarity notifications unavailable: $e');
       _ready = false;
     }
   }
@@ -157,8 +192,12 @@ class NotificationService {
     }
   }
 
-  Future<void> requestPermission() async {
-    if (!_ready) return;
+  /// Requests notification + exact-alarm permission, then refreshes status.
+  /// Returns true when notifications are enabled afterwards. Never throws:
+  /// unready plugin or denied permissions yield false so the Settings UI can
+  /// show a SnackBar / open system settings instead of appearing dead.
+  Future<bool> requestPermission() async {
+    if (!_ready) return false;
     try {
       final android =
           _plugin.resolvePlatformSpecificImplementation<
@@ -173,6 +212,22 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
               MacOSFlutterLocalNotificationsPlugin>()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+    } catch (_) {
+      // Best-effort.
+    }
+    await refreshPermissionStatus();
+    return _notificationsEnabled ?? false;
+  }
+
+  /// Re-opens the system "Alarms & reminders" screen when exact alarms are
+  /// still denied after [requestPermission]. No-op when unready.
+  Future<void> openExactAlarmSettings() async {
+    if (!_ready) return;
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestExactAlarmsPermission();
     } catch (_) {
       // Best-effort.
     }
@@ -202,6 +257,43 @@ class NotificationService {
   /// [snoozeMinutes] bakes the dynamic action title.
   /// On Android without exact-alarm permission, falls back to inexact
   /// (fires within an OEM-dependent window) instead of throwing.
+  /// Immediate test ping for the Settings button. Proves init + OS
+  /// delivery in one tap on any platform. No-op when unready.
+  Future<void> showTest() async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        id: 0,
+        title: 'Clarity test',
+        body: 'Notifications are working.',
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            androidChannelId,
+            'Task reminders',
+            importance: Importance.high,
+          ),
+          iOS: const DarwinNotificationDetails(),
+          macOS: const DarwinNotificationDetails(),
+          linux: LinuxNotificationDetails(),
+          windows: WindowsNotificationDetails(
+            images: <WindowsImage>[
+              // Green logo asset: tray_icon.png is a black glyph that
+              // vanishes on dark toasts — the color variant stays visible.
+              WindowsImage(
+                WindowsImage.getAssetUri('assets/tray/tray_icon_color@2x.png'),
+                altText: 'Clarity',
+                placement: WindowsImagePlacement.appLogoOverride,
+                crop: WindowsImageCrop.circle,
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
   Future<void> schedule(TodoTask task, {int snoozeMinutes = 60}) async {
     if (!_ready || !shouldSchedule(task, DateTime.now())) return;
     try {
@@ -261,13 +353,27 @@ class NotificationService {
           ),
           windows: WindowsNotificationDetails(
             actions: <WindowsAction>[
-              const WindowsAction(
+              // Arguments carry the task id: the Windows plugin echoes the
+              // raw activation args as both payload and actionId, so a bare
+              // action id would lose which task was tapped. Parsed back by
+              // parseActionResponse (task ids are UUIDs — no ':' inside).
+              WindowsAction(
                 content: 'Mark Done',
-                arguments: markDoneActionId,
+                arguments: '$markDoneActionId:${task.id}',
               ),
               WindowsAction(
                 content: snoozeLabel(snoozeMinutes),
-                arguments: snoozeActionId,
+                arguments: '$snoozeActionId:${task.id}',
+              ),
+            ],
+            images: <WindowsImage>[
+              // Green logo asset: tray_icon.png is a black glyph that
+              // vanishes on dark toasts — the color variant stays visible.
+              WindowsImage(
+                WindowsImage.getAssetUri('assets/tray/tray_icon_color@2x.png'),
+                altText: 'Clarity',
+                placement: WindowsImagePlacement.appLogoOverride,
+                crop: WindowsImageCrop.circle,
               ),
             ],
           ),
@@ -293,27 +399,112 @@ class NotificationService {
     await _cacheRemove(taskId);
   }
 
-  /// Startup reconcile: clear stale system state, then schedule every
-  /// actionable task. Called on every launch (covers reboot).
+  /// Pure reconcile diff (unit-tested).
+  ///
+  /// - [openIds]: tasks still alive (not completed/deleted) with a due
+  ///   date — anything in the OS (pending timer or delivered toast) outside
+  ///   this set is stale and must go.
+  /// - [schedulableIds]: subset of [openIds] that is future-dated
+  ///   ([shouldSchedule]) and needs a pending timer.
+  /// - Delivered toasts for still-open (possibly overdue) tasks are never
+  ///   touched: they park in the OS notification center until the user
+  ///   acts. This is why there is no blanket cancelAll here — it wiped
+  ///   Action Center on every launch and sync.
+  static ({Set<int> toCancel, Set<int> toSchedule}) reconcileNotifications({
+    required Set<int> openIds,
+    required Set<int> schedulableIds,
+    required Set<int> pendingIds,
+    required Set<int> activeIds,
+  }) {
+    final known = {...pendingIds, ...activeIds};
+    return (
+      toCancel: known.difference(openIds),
+      toSchedule: schedulableIds.difference(pendingIds),
+    );
+  }
+
+  /// Targeted reconcile: cancel only toasts/timers for dead tasks, schedule
+  /// only missing timers, and re-time edited ones. Delivered toasts for
+  /// open tasks survive launches and syncs. Called on launch, sync writes
+  /// and settings changes — never destructive on uncertainty (query
+  /// failure schedules, never wipes).
   Future<void> rescheduleAll(
     Iterable<TodoTask> tasks, {
     int snoozeMinutes = 60,
   }) async {
     if (!_ready) return;
     try {
-      await _plugin.cancelAll();
-    } catch (_) {
-      // Continue to (re)schedule regardless.
-    }
-    final now = DateTime.now();
-    for (final task in tasks) {
-      if (shouldSchedule(task, now)) {
+      final now = DateTime.now();
+      final byIntId = <int, TodoTask>{};
+      final openIds = <int>{};
+      final schedulableIds = <int>{};
+      for (final task in tasks) {
+        if (task.isCompleted || task.dueDate == null) continue;
+        final id = notificationIdFor(task.id);
+        byIntId[id] = task;
+        openIds.add(id);
+        if (shouldSchedule(task, now)) schedulableIds.add(id);
+      }
+      Set<int> pendingIds = {};
+      Set<int> activeIds = {};
+      try {
+        pendingIds = {
+          for (final r in await _plugin.pendingNotificationRequests()) r.id
+        };
+        activeIds = {
+          for (final n in await _plugin.getActiveNotifications()) n.id ?? -1
+        };
+        activeIds.remove(-1);
+      } catch (_) {
+        // Unknown OS state: schedule-only below, never wipe.
+      }
+      final diff = reconcileNotifications(
+        openIds: openIds,
+        schedulableIds: schedulableIds,
+        pendingIds: pendingIds,
+        activeIds: activeIds,
+      );
+      for (final id in diff.toCancel) {
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          // Best-effort per id.
+        }
+      }
+      // Re-time edited tasks whose pending timer carries a stale due date
+      // or snooze delay (edits normally reschedule directly; this is the
+      // backstop for sync-applied changes).
+      final mirror = ReminderCache.decode(
+        (await SharedPreferences.getInstance())
+            .getString(ReminderCache.prefsKey),
+      );
+      final mirrorById = {for (final e in mirror) notificationIdFor(e.id): e};
+      for (final id in schedulableIds.intersection(pendingIds)) {
+        final task = byIntId[id];
+        final entry = mirrorById[id];
+        final dueMs = task?.dueDate?.millisecondsSinceEpoch;
+        if (task == null) continue;
+        if (entry != null &&
+            entry.dueMs == dueMs &&
+            entry.snoozeMinutes == snoozeMinutes) {
+          continue; // timer already matches — leave it alone
+        }
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          // Best-effort per id.
+        }
         await schedule(task, snoozeMinutes: snoozeMinutes);
       }
+      for (final id in diff.toSchedule) {
+        final task = byIntId[id];
+        if (task != null) await schedule(task, snoozeMinutes: snoozeMinutes);
+      }
+    } catch (_) {
+      // Best-effort overall.
     }
     // Rewrite the prefs mirror to drop stale ids (deleted/completed on
-    // another device). Individual schedule() calls above already upserted,
-    // so this is a prune pass.
+    // another device).
     await _cacheReplaceAll(tasks, snoozeMinutes);
   }
 
@@ -383,9 +574,18 @@ class NotificationService {
     }
   }
 
-  void _onResponse(NotificationResponse response) {    final taskId = response.payload;
+  void _onResponse(NotificationResponse response) {
+    final parsed = parseActionResponse(response.actionId, response.payload);
+    final taskId = parsed.taskId;
     if (taskId == null || taskId.isEmpty) return;
-    switch (response.actionId) {
+    // Cold start: the tap can arrive before main.dart assigns the
+    // handlers. Stash it — drainPendingActions() replays after wiring
+    // instead of dropping the user's tap.
+    if (onMarkDone == null && onSnooze == null) {
+      _pendingResponse = response;
+      return;
+    }
+    switch (parsed.action) {
       case markDoneActionId:
         onMarkDone?.call(taskId);
       case snoozeActionId:
@@ -393,6 +593,27 @@ class NotificationService {
       default:
         // Default tap: the OS already foregrounds the app. Nothing to do.
         break;
+    }
+  }
+
+  /// Replays a pre-wiring action tap, then consumes a cold-start launch
+  /// (app opened *by* a notification tap — the response may only be
+  /// visible via launch details, never the stream). Called once from
+  /// main.dart after the action handlers are assigned. Never throws.
+  Future<void> drainPendingActions() async {
+    if (!_ready) return;
+    try {
+      final stashed = _pendingResponse;
+      _pendingResponse = null;
+      if (stashed != null) _onResponse(stashed);
+      final launch =
+          await _plugin.getNotificationAppLaunchDetails();
+      final response = launch?.notificationResponse;
+      if (launch?.didNotificationLaunchApp == true && response != null) {
+        _onResponse(response);
+      }
+    } catch (_) {
+      // Best-effort.
     }
   }
 
@@ -408,6 +629,9 @@ class NotificationService {
             DarwinNotificationAction.plain(
               snoozeActionId,
               snoozeLabel(snoozeMinutes),
+              // Foreground like Mark Done: a suspended macOS app reliably
+              // delivers foreground actions; background ones can be dropped.
+              options: const {DarwinNotificationActionOption.foreground},
             ),
           ],
         ),

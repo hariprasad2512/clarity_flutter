@@ -8,6 +8,7 @@ import '../core/task_model.dart';
 import '../desktop/desktop.dart';
 import '../desktop/hotkey_service.dart';
 import '../sync/sync_engine.dart';
+import 'clarity_logo.dart';
 
 /// Slim Todoist-style sidebar: Quick Add entry, Today/Inbox/Done rows with
 /// badges, account + sync footer. Mirrors native `SidebarView`.
@@ -34,6 +35,27 @@ class Sidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                roomy ? 20 : 16, roomy ? 20 : 16, roomy ? 20 : 16, 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClarityMark(size: roomy ? 28 : 24),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Clarity',
+                    overflow: TextOverflow.ellipsis,
+                    style: (roomy
+                            ? theme.textTheme.titleLarge
+                            : theme.textTheme.titleMedium)
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: EdgeInsets.all(roomy ? 20 : 16),
             child: FilledButton.icon(

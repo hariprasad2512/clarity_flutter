@@ -78,6 +78,17 @@ class TodoTask extends HiveObject {
     return !day.isAfter(today);
   }
 
+  /// Strictly overdue (due before today): drives the red app-icon badge.
+  /// Today-due tasks count for the Today tab, not the badge.
+  bool get isOverdue {
+    final due = dueDate;
+    if (due == null || isCompleted) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(due.year, due.month, due.day);
+    return day.isBefore(today);
+  }
+
   // -- §3 wire mapping (Phase 3 sync; ISO-8601, fractional seconds) --------
 
   Map<String, dynamic> toServerRow(String userId) => {

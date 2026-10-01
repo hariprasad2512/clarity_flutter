@@ -89,4 +89,97 @@ void main() {
       expect(NotificationService.snoozeActionId, 'CLARITY_SNOOZE');
     });
   });
+
+  group('NotificationService.parseActionResponse', () {
+    const done = 'CLARITY_MARK_DONE';
+    const snooze = 'CLARITY_SNOOZE';
+    const taskId = '123e4567-e89b-12d3-a456-426614174000';
+
+    test('Android/iOS/Linux: clean action id + payload task id', () {
+      expect(
+        NotificationService.parseActionResponse(done, taskId),
+        (action: done, taskId: taskId),
+      );
+      expect(
+        NotificationService.parseActionResponse(snooze, taskId),
+        (action: snooze, taskId: taskId),
+      );
+    });
+
+    test('Windows: ACTION:<taskId> activation args recover both halves', () {
+      // The Windows plugin echoes raw activation args as both payload and
+      // actionId; schedule() bakes the task id into button arguments.
+      expect(
+        NotificationService.parseActionResponse('$done:$taskId', '$done:$taskId'),
+        (action: done, taskId: taskId),
+      );
+      expect(
+        NotificationService.parseActionResponse(
+            '$snooze:$taskId', 'ignored-payload'),
+        (action: snooze, taskId: taskId),
+      );
+    });
+
+    test('body tap and garbage yield no task (ignored by caller)', () {
+      // Windows body tap: launch args are the bare task id, no action.
+      final body = NotificationService.parseActionResponse(taskId, taskId);
+      expect(body.taskId, taskId);
+      expect(body.action, isNot(equals(done)));
+      expect(body.action, isNot(equals(snooze)));
+      // Null/empty input never dispatches.
+      expect(NotificationService.parseActionResponse(null, taskId).taskId,
+          isNull);
+      expect(
+          NotificationService.parseActionResponse('', taskId).taskId, isNull);
+      expect(NotificationService.parseActionResponse('$done:', taskId).taskId,
+          isNull);
+    });
+  });
+
+  group('NotificationService.reconcileNotifications', () {
+    ({Set<int> toCancel, Set<int> toSchedule}) reconcile({
+      Set<int> open = const {},
+      Set<int> schedulable = const {},
+      Set<int> pending = const {},
+      Set<int> active = const {},
+    }) =>
+        NotificationService.reconcileNotifications(
+          openIds: open,
+          schedulableIds: schedulable,
+          pendingIds: pending,
+          activeIds: active,
+        );
+
+    test('delivered toast for an open overdue task is never touched', () {
+      // The core Action Center promise: fired + unanswered + still open
+      // survives launches and syncs (no blanket cancelAll anymore).
+      final r = reconcile(open: {1}, active: {1});
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('stale system entries for dead tasks are cancelled', () {
+      final r = reconcile(pending: {1, 2}, active: {3});
+      expect(r.toCancel, {1, 2, 3});
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('missing timers for due tasks are scheduled', () {
+      final r = reconcile(open: {1, 2}, schedulable: {1, 2}, pending: {1});
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, {2});
+    });
+
+    test('matching timers are left alone; completed pruned', () {
+      final r = reconcile(open: {1}, schedulable: {1}, pending: {1, 9});
+      expect(r.toCancel, {9});
+      expect(r.toSchedule, isEmpty);
+    });
+
+    test('empty states are no-ops', () {
+      final r = reconcile();
+      expect(r.toCancel, isEmpty);
+      expect(r.toSchedule, isEmpty);
+    });
+  });
 }
