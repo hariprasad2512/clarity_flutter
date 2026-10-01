@@ -60,37 +60,62 @@ void main() {
       expect(TrayService.iconAsset, startsWith('assets/tray/'));
     });
 
-    test('menu carries quick-add / show / quit actions', () {
-      var quickAdd = 0, show = 0, quit = 0;
+    test('menu carries quick-add / today / inbox / show / quit actions', () {
+      var quickAdd = 0, today = 0, inbox = 0, show = 0, quit = 0;
       final menu = TrayService.buildMenu(
         quickAdd: () => quickAdd++,
+        showToday: () => today++,
+        showInbox: () => inbox++,
         show: () => show++,
         quit: () => quit++,
+        todayCount: 3,
+        inboxCount: 7,
       );
-      final keys = [
-        for (final item in menu.items ?? []) item.key,
-      ];
+      final items = menu.items ?? [];
+      final keys = [for (final item in items) item.key];
       expect(
         keys,
         containsAll([
           TrayService.quickAddKey,
+          TrayService.todayKey,
+          TrayService.inboxKey,
           TrayService.showKey,
           TrayService.quitKey,
         ]),
       );
+      // Counts surface in the Today/Inbox labels.
+      expect(
+        items
+            .where((i) =>
+                i.key == TrayService.todayKey ||
+                i.key == TrayService.inboxKey)
+            .map((i) => i.label)
+            .join(' '),
+        contains('3'),
+      );
       // Callbacks route through the built items.
-      for (final item in menu.items ?? []) {
+      for (final item in items) {
         item.onClick?.call(item);
       }
       expect(quickAdd, 1);
+      expect(today, 1);
+      expect(inbox, 1);
       expect(show, 1);
       expect(quit, 1);
+    });
+
+    test('refreshMenu is a safe no-op before init (tests)', () async {
+      final service = TrayService();
+      await service.refreshMenu(todayCount: 1, inboxCount: 2);
+      await service.dispose();
     });
 
     test('init is a safe no-op in tests', () async {
       final service = TrayService();
       await service.init(
         quickAdd: () async {},
+        showToday: () async {},
+        showInbox: () async {},
         show: () async {},
         quit: () async {},
       );
