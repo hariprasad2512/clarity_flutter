@@ -344,9 +344,11 @@ final taskListProvider =
 // -- filtering ---------------------------------------------------------------
 
 class FilterNotifier extends Notifier<TaskFilter> {
-  // Capture-first everywhere: Inbox is the default on all platforms.
+  // Desktop stays capture-first (Inbox); mobile opens on Today so
+  // due/overdue work surfaces first. Tests count as non-desktop.
   @override
-  TaskFilter build() => TaskFilter.inbox;
+  TaskFilter build() =>
+      isDesktopApp ? TaskFilter.inbox : TaskFilter.today;
   void set(TaskFilter f) => state = f;
 }
 

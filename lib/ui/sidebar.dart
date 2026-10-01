@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/account_profile.dart';
 import '../auth/auth_service.dart';
 import '../core/app_config.dart';
 import '../core/app_store.dart';
@@ -137,7 +138,17 @@ class _AccountFooter extends ConsumerWidget {
       SyncStatus.localOnly => (Colors.grey, 'Local only'),
       SyncStatus.error => (Colors.red, 'Sync error'),
     };
-    final headline = user?.email ?? 'Local only';
+    // Google identity: First Last + photo. Email stays as the dimmed
+    // subline so the account remains identifiable; photo failures
+    // (offline) fall back to the initial avatar.
+    final metadata = user?.userMetadata;
+    final email = user?.email;
+    final headline = AccountProfile.displayName(
+      metadata: metadata,
+      email: email,
+    );
+    final photoUrl =
+        user == null ? null : AccountProfile.photoUrl(metadata);
 
     return Padding(
       padding: EdgeInsets.all(isDesktopApp ? 16 : 20),
@@ -147,13 +158,20 @@ class _AccountFooter extends ConsumerWidget {
           Row(
             children: [
               CircleAvatar(
-                radius: 14,
+                radius: 20,
                 backgroundColor: Colors.green.withValues(alpha: 0.2),
-                child: Text(
-                  headline.isEmpty ? '○' : headline[0].toUpperCase(),
-                  style: const TextStyle(
-                      color: Colors.green, fontSize: 12),
-                ),
+                backgroundImage:
+                    photoUrl == null ? null : NetworkImage(photoUrl),
+                onBackgroundImageError: photoUrl == null
+                    ? null
+                    : (_, _) {}, // keep the initial fallback
+                child: photoUrl == null
+                    ? Text(
+                        AccountProfile.initial(headline),
+                        style: const TextStyle(
+                            color: Colors.green, fontSize: 12),
+                      )
+                    : null,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -164,6 +182,14 @@ class _AccountFooter extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontWeight: FontWeight.w500)),
+                    if (user != null && (email ?? '').isNotEmpty)
+                      Text(
+                        email!,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
                     Row(
                       children: [
                         Container(

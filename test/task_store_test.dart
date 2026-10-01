@@ -247,11 +247,11 @@ void main() {
   });
 
   group('mobile defaults + Completed-today section', () {
-    test('filter defaults to Inbox outside desktop', () async {
+    test('filter defaults to Today outside desktop', () async {
       final store = await LocalStore.openTest();
       addTearDown(() => store.closeAndDelete());
       final c = await _container(store);
-      expect(c.read(filterProvider), TaskFilter.inbox);
+      expect(c.read(filterProvider), TaskFilter.today);
     });
 
     test('completed-today tracks done-today and undoes via toggle',
