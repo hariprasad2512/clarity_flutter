@@ -159,6 +159,37 @@ def main() -> None:
         "assets", "tray", "tray_icon.ico",
     )
 
+    # 9. iOS AppIcon set (green square + check). Filenames match the stock
+    # Flutter Contents.json template, so no JSON change is needed — the
+    # PNGs are simply replaced in place. Flattened onto solid green:
+    # iOS app icons must be opaque (no alpha), and iOS applies its own
+    # rounded-rect mask at render time.
+    for px, names in (
+        (20, ["Icon-App-20x20@1x"]),
+        (40, ["Icon-App-20x20@2x"]),
+        (60, ["Icon-App-20x20@3x"]),
+        (29, ["Icon-App-29x29@1x"]),
+        (58, ["Icon-App-29x29@2x"]),
+        (87, ["Icon-App-29x29@3x"]),
+        (80, ["Icon-App-40x40@2x"]),
+        (120, ["Icon-App-40x40@3x", "Icon-App-60x60@2x"]),
+        (180, ["Icon-App-60x60@3x"]),
+        (76, ["Icon-App-76x76@1x"]),
+        (152, ["Icon-App-76x76@2x"]),
+        (167, ["Icon-App-83.5x83.5@2x"]),
+        (1024, ["Icon-App-1024x1024@1x"]),
+    ):
+        icon = green_square(px)
+        bg = Image.new("RGBA", (px, px), GREEN)
+        bg.alpha_composite(icon)
+        flat = bg.convert("RGB")
+        for name in names:
+            save(
+                flat,
+                "ios", "Runner", "Assets.xcassets",
+                "AppIcon.appiconset", f"{name}.png",
+            )
+
 
 if __name__ == "__main__":
     main()
