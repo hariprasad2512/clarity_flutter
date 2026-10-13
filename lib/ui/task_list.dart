@@ -450,7 +450,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                 child: CustomPaint(
                                   painter: StrikePainter(
                                     progress: _completeCtrl.value,
-                                    color: Colors.grey,
+                                    color: completeStrikeColor(context),
                                   ),
                                 ),
                               ),
@@ -465,8 +465,9 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                           decoration: task.isCompleted
                               ? TextDecoration.lineThrough
                               : null,
+                          // Same grey as the completion animation.
                           color: task.isCompleted
-                              ? Colors.grey
+                              ? completeStrikeColor(context)
                               : null,
                           fontSize: roomy ? 17 : 15,
                         ),
