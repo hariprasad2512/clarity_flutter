@@ -24,6 +24,12 @@ import 'reminder_cache.dart';
 /// (wired in main.dart). No background-isolate handler by design: Hive boxes
 /// cannot be opened from two isolates, so actions always apply through the
 /// running app (a tap cold-starts it first when killed).
+///
+/// v1.2.2: actions are background actions — tapping Mark Done / snooze
+/// never foregrounds the app (Android `showsUserInterface: false`, iOS
+/// category without the foreground option). macOS keeps foreground
+/// actions under [macCategoryId] for delivery reliability; Windows
+/// toasts inherently activate (OS behavior).
 class NotificationService {
   NotificationService([FlutterLocalNotificationsPlugin? plugin])
       : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
@@ -32,6 +38,11 @@ class NotificationService {
   static const markDoneActionId = 'CLARITY_MARK_DONE';
   static const snoozeActionId = 'CLARITY_SNOOZE';
   static const androidChannelId = 'clarity_due';
+
+  /// v1.2.2: macOS keeps foreground actions (reliability) under its own
+  /// category; iOS uses [categoryId] with background actions. Contract
+  /// in AGENTS §7 unchanged — same action IDs on both.
+  static const macCategoryId = 'CLARITY_TASK_DUE_MAC';
 
   /// Stable COM identity for Windows toasts. Generated once, never changed
   /// (Windows uses it to route activation callbacks).
@@ -310,17 +321,19 @@ class NotificationService {
             category: AndroidNotificationCategory.reminder,
             visibility: NotificationVisibility.public,
             actions: <AndroidNotificationAction>[
+              // v1.2.2: background actions — tapping Mark Done / snooze
+              // must not foreground the app.
               const AndroidNotificationAction(
                 markDoneActionId,
                 'Mark Done',
-                showsUserInterface: true,
+                showsUserInterface: false,
                 cancelNotification: true,
               ),
               // Baked per schedule so the delay is always current.
               AndroidNotificationAction(
                 snoozeActionId,
                 snoozeLabel(snoozeMinutes),
-                showsUserInterface: true,
+                showsUserInterface: false,
                 cancelNotification: true,
               ),
             ],
@@ -337,7 +350,7 @@ class NotificationService {
             presentBanner: true,
             presentList: true,
             presentSound: true,
-            categoryIdentifier: categoryId,
+            categoryIdentifier: macCategoryId,
           ),
           linux: LinuxNotificationDetails(
             actions: <LinuxNotificationAction>[
@@ -618,8 +631,28 @@ class NotificationService {
   }
 
   List<DarwinNotificationCategory> _darwinCategories(int snoozeMinutes) => [
+        // v1.2.2: iOS actions run in the background so taps never open
+        // the app; macOS keeps foreground (a suspended macOS app
+        // reliably delivers foreground actions; background ones can be
+        // dropped). The plugin registers the union; each platform only
+        // uses its own category subset via the identifier below.
         DarwinNotificationCategory(
           categoryId,
+          actions: [
+            DarwinNotificationAction.plain(
+              markDoneActionId,
+              'Mark Done',
+              options: const {},
+            ),
+            DarwinNotificationAction.plain(
+              snoozeActionId,
+              snoozeLabel(snoozeMinutes),
+              options: const {},
+            ),
+          ],
+        ),
+        DarwinNotificationCategory(
+          macCategoryId,
           actions: [
             DarwinNotificationAction.plain(
               markDoneActionId,
@@ -629,8 +662,6 @@ class NotificationService {
             DarwinNotificationAction.plain(
               snoozeActionId,
               snoozeLabel(snoozeMinutes),
-              // Foreground like Mark Done: a suspended macOS app reliably
-              // delivers foreground actions; background ones can be dropped.
               options: const {DarwinNotificationActionOption.foreground},
             ),
           ],
