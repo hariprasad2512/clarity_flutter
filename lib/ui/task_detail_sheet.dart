@@ -8,8 +8,9 @@ import 'schedule_sheet.dart';
 
 /// Task detail sheet: opened by tapping a task tile (both platforms).
 /// Plain-text title (no NLP re-parse), due date/time chips sharing the
-/// schedule picker, quick presets (In 1 hour / Tomorrow 9 AM / Next week /
-/// Clear), Save + Delete. Completion stays on the row's circle only.
+/// schedule picker, quick presets (In 1 hour / Tomorrow same time /
+/// This Weekend / Next week / Clear), Save + Delete (confirmed).
+/// Completion stays on the row's circle only.
 Future<void> showTaskDetailSheet(BuildContext context, TodoTask task) =>
     showModalBottomSheet(
       context: context,
@@ -61,12 +62,15 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
     });
   }
 
-  void _presetTomorrowMorning() {
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day)
-        .add(const Duration(days: 1));
+  void _presetTomorrowSameTime() {
     setState(() {
-      _due = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9);
+      _due = DateParser.tomorrowSameTime(DateTime.now(), _due);
+    });
+  }
+
+  void _presetWeekend() {
+    setState(() {
+      _due = DateParser.upcomingSaturday(DateTime.now(), _due);
     });
   }
 
@@ -175,8 +179,10 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
                 _PresetChip(
                     label: 'In 1 hour', onTap: _presetInOneHour),
                 _PresetChip(
-                    label: 'Tomorrow 9 AM',
-                    onTap: _presetTomorrowMorning),
+                    label: 'Tomorrow, same time',
+                    onTap: _presetTomorrowSameTime),
+                _PresetChip(
+                    label: 'This Weekend', onTap: _presetWeekend),
                 _PresetChip(
                     label: 'Next week', onTap: _presetNextWeek),
               ],
