@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_store.dart';
 import '../core/date_parser.dart';
 import '../core/task_model.dart';
+import 'delete_confirm.dart';
 import 'schedule_sheet.dart';
 
 /// Task detail sheet: opened by tapping a task tile (both platforms).
@@ -11,8 +12,11 @@ import 'schedule_sheet.dart';
 /// schedule picker, quick presets (In 1 hour / Tomorrow same time /
 /// This Weekend / Next week / Clear), Save + Delete (confirmed).
 /// Completion stays on the row's circle only.
-Future<void> showTaskDetailSheet(BuildContext context, TodoTask task) =>
-    showModalBottomSheet(
+///
+/// Returns the deleted task snapshot when Delete is confirmed (caller
+/// shows the Undo bar — the sheet is already popped), else null.
+Future<TodoTask?> showTaskDetailSheet(BuildContext context, TodoTask task) =>
+    showModalBottomSheet<TodoTask>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -97,12 +101,26 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 
   Future<void> _delete() async {
     if (_saving) return;
+    // Same "Are you sure?" as swipe-delete. Unsaved title/due edits are
+    // discarded: Undo restores the saved task, matching swipe behavior.
+    final confirmed =
+        await showDeleteConfirm(context, widget.task.title);
+    if (!confirmed || !mounted) return;
     setState(() => _saving = true);
+    final snapshot = TodoTask(
+      id: widget.task.id,
+      title: widget.task.title,
+      dueDate: widget.task.dueDate,
+      isCompleted: widget.task.isCompleted,
+      createdAt: widget.task.createdAt,
+      updatedAt: widget.task.updatedAt,
+      needsSync: widget.task.needsSync,
+    );
     await ref
         .read(taskListProvider.notifier)
         .deleteByIds([widget.task.id]);
     if (!mounted) return;
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(snapshot);
   }
 
   @override
