@@ -57,24 +57,26 @@ class Sidebar extends ConsumerWidget {
               ],
             ),
           ),
-          Padding(
-            padding: EdgeInsets.all(roomy ? 20 : 16),
-            child: FilledButton.icon(
-              onPressed: onQuickAdd,
-              icon: Icon(Icons.bolt, size: roomy ? 22 : 18),
-              label: Text(HotkeyService.label,
-                  style: TextStyle(fontSize: roomy ? 17 : 14)),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+          // v1.2.2: Quick Add retired on macOS (capture bar covers it).
+          if (!isMacOSApp)
+            Padding(
+              padding: EdgeInsets.all(roomy ? 20 : 16),
+              child: FilledButton.icon(
+                onPressed: onQuickAdd,
+                icon: Icon(Icons.bolt, size: roomy ? 22 : 18),
+                label: Text(HotkeyService.label,
+                    style: TextStyle(fontSize: roomy ? 17 : 14)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding:
+                      EdgeInsets.symmetric(vertical: roomy ? 16 : 12),
                 ),
-                padding:
-                    EdgeInsets.symmetric(vertical: roomy ? 16 : 12),
               ),
             ),
-          ),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: roomy ? 20 : 16),
             child: Text(

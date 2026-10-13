@@ -53,7 +53,8 @@ class HotkeyService {
   }
 
   Future<void> init(Future<void> Function() onQuickAdd) async {
-    if (!isDesktopApp || _ready) return;
+    // v1.2.2: no Quick Add on macOS (all entry points retired there).
+    if (!isDesktopApp || isMacOSApp || _ready) return;
     try {
       _hotkey = buildHotkey();
       await _m.register(

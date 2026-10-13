@@ -32,6 +32,10 @@ void main() {
       expect(isDesktopApp, isFalse);
     });
 
+    test('isMacOSApp is false under flutter test', () {
+      expect(isMacOSApp, isFalse);
+    });
+
     test('HotkeyService.init is a safe no-op in tests', () async {
       final service = HotkeyService();
       var called = false;
@@ -102,6 +106,28 @@ void main() {
       expect(inbox, 1);
       expect(show, 1);
       expect(quit, 1);
+    });
+
+    test('menu omits quick-add when includeQuickAdd is false (macOS)', () {
+      final menu = TrayService.buildMenu(
+        quickAdd: () {},
+        showToday: () {},
+        showInbox: () {},
+        show: () {},
+        quit: () {},
+        includeQuickAdd: false,
+      );
+      final keys = [for (final item in menu.items ?? []) item.key];
+      expect(keys, isNot(contains(TrayService.quickAddKey)));
+      expect(
+        keys,
+        containsAll([
+          TrayService.todayKey,
+          TrayService.inboxKey,
+          TrayService.showKey,
+          TrayService.quitKey,
+        ]),
+      );
     });
 
     test('refreshMenu is a safe no-op before init (tests)', () async {

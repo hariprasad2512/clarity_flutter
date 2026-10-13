@@ -59,7 +59,8 @@ class QuickAddHost {
   /// off-desktop) so callers can fall back to the in-window composer
   /// instead of failing silently.
   Future<bool> summon() async {
-    if (!isDesktopApp) return false;
+    // v1.2.2: panel retired on macOS — callers fall back to composer.
+    if (!isDesktopApp || isMacOSApp) return false;
     if (_creating) return true; // panel is on its way — don't double up
     final now = DateTime.now();
     if (_lastSummon != null &&
