@@ -313,6 +313,26 @@ class DateParser {
     if (date == null) return 'Time';
     return DateFormat.jm().format(date);
   }
+
+  /// v1.2.2 preset helpers (pure, unit-tested) for the detail sheet:
+  /// * [tomorrowSameTime]: tomorrow's date, keeping [keepTime]'s clock
+  ///   (else [now]'s) — "Tomorrow, same time".
+  /// * [upcomingSaturday]: upcoming Saturday (today if Saturday) keeping
+  ///   the clock — "This Weekend". Sunday yields +6d (never the past).
+  static DateTime tomorrowSameTime(DateTime now, [DateTime? keepTime]) {
+    final t = keepTime ?? now;
+    final day =
+        DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+    return DateTime(day.year, day.month, day.day, t.hour, t.minute);
+  }
+
+  static DateTime upcomingSaturday(DateTime now, [DateTime? keepTime]) {
+    final t = keepTime ?? now;
+    final offset = (6 - now.weekday + 7) % 7;
+    final day =
+        DateTime(now.year, now.month, now.day).add(Duration(days: offset));
+    return DateTime(day.year, day.month, day.day, t.hour, t.minute);
+  }
 }
 
 typedef _R = ({DateTime date, _Span span, bool exact});

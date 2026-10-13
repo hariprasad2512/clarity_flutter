@@ -12,3 +12,12 @@ bool get isDesktopApp {
   if (Platform.environment.containsKey('FLUTTER_TEST')) return false;
   return Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 }
+
+/// v1.2.2: Quick Add is retired on macOS only (all entry points —
+/// sidebar button, tray item, hotkey, floating panel). macOS creates
+/// tasks via the desktop capture bar / composer instead.
+bool get isMacOSApp {
+  if (kIsWeb) return false;
+  if (Platform.environment.containsKey('FLUTTER_TEST')) return false;
+  return Platform.isMacOS;
+}

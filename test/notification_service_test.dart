@@ -88,6 +88,16 @@ void main() {
       expect(NotificationService.markDoneActionId, 'CLARITY_MARK_DONE');
       expect(NotificationService.snoozeActionId, 'CLARITY_SNOOZE');
     });
+
+    test('v1.2.2: macOS has its own foreground category', () {
+      // iOS stays on the background category; macOS keeps foreground
+      // actions under a separate id so neither platform regresses.
+      expect(NotificationService.macCategoryId, isNotEmpty);
+      expect(
+        NotificationService.macCategoryId,
+        isNot(equals(NotificationService.categoryId)),
+      );
+    });
   });
 
   group('NotificationService.parseActionResponse', () {

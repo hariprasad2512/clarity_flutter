@@ -75,16 +75,17 @@ Future<int> restoreReminders({
               category: AndroidNotificationCategory.reminder,
               visibility: NotificationVisibility.public,
               actions: <AndroidNotificationAction>[
+                // v1.2.2: background actions (must match schedule()).
                 const AndroidNotificationAction(
                   NotificationService.markDoneActionId,
                   'Mark Done',
-                  showsUserInterface: true,
+                  showsUserInterface: false,
                   cancelNotification: true,
                 ),
                 AndroidNotificationAction(
                   NotificationService.snoozeActionId,
                   NotificationService.snoozeLabel(e.snoozeMinutes),
-                  showsUserInterface: true,
+                  showsUserInterface: false,
                   cancelNotification: true,
                 ),
               ],

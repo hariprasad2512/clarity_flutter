@@ -17,7 +17,7 @@ class ScheduleCleared extends ScheduleResult {
 }
 
 /// Bottom-sheet schedule picker shared by the desktop capture bar and the
-/// mobile composer: Today/Tomorrow/Weekend presets (day is set, draft
+/// mobile composer: Today/Tomorrow/This Weekend presets (day is set, draft
 /// time-of-day kept — like native `applyPreset`), month calendar, time
 /// row, Clear/Done. Returns picked/cleared, null when dismissed.
 Future<ScheduleResult?> showScheduleSheet(
@@ -77,7 +77,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
                 _PresetChip(label: 'Today', onTap: () => _applyPreset(0)),
                 _PresetChip(
                     label: 'Tomorrow', onTap: () => _applyPreset(1)),
-                _PresetChip(label: 'Weekend', onTap: _applyWeekend),
+                _PresetChip(label: 'This Weekend', onTap: _applyWeekend),
               ],
             ),
             CalendarDatePicker(
