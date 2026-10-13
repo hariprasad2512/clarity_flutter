@@ -133,4 +133,32 @@ void main() {
       expect(DateParser.timeLabel(null), 'Time');
     });
   });
+
+  group('DateParser presets (v1.2.2 detail sheet)', () {
+    test('tomorrowSameTime keeps the clock', () {
+      final now = DateTime(2026, 10, 13, 15, 45); // a Tuesday
+      final d = DateParser.tomorrowSameTime(now);
+      expect(d, DateTime(2026, 10, 14, 15, 45));
+      // Keeps an existing due time instead of now.
+      final kept = DateParser.tomorrowSameTime(now, DateTime(2026, 1, 1, 9, 5));
+      expect(kept, DateTime(2026, 10, 14, 9, 5));
+    });
+
+    test('upcomingSaturday lands on Saturday, never the past', () {
+      // Tuesday -> Saturday (+4).
+      final tue = DateTime(2026, 10, 13, 15, 45);
+      expect(
+        DateParser.upcomingSaturday(tue),
+        DateTime(2026, 10, 17, 15, 45),
+      );
+      // Saturday -> today (keeps time).
+      final sat = DateTime(2026, 10, 17, 9, 5);
+      expect(DateParser.upcomingSaturday(sat), sat);
+      // Sunday -> +6 (next Saturday, not yesterday).
+      final sun = DateTime(2026, 10, 18, 20, 0);
+      final d = DateParser.upcomingSaturday(sun);
+      expect(d.weekday, DateTime.saturday);
+      expect(d.isAfter(sun), isTrue);
+    });
+  });
 }

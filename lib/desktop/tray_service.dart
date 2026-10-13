@@ -65,14 +65,19 @@ class TrayService with TrayListener {
     required void Function() quit,
     int todayCount = 0,
     int inboxCount = 0,
+    // v1.2.2: Quick Add retired on macOS — menu starts at Show Today.
+    bool includeQuickAdd = true,
   }) =>
       Menu(items: [
-        MenuItem(
-          key: quickAddKey,
-          label: 'Quick Add (${HotkeyService.label.replaceFirst('Quick Add  ', '')})',
-          onClick: (_) => quickAdd(),
-        ),
-        MenuItem.separator(),
+        if (includeQuickAdd) ...[
+          MenuItem(
+            key: quickAddKey,
+            label:
+                'Quick Add (${HotkeyService.label.replaceFirst('Quick Add  ', '')})',
+            onClick: (_) => quickAdd(),
+          ),
+          MenuItem.separator(),
+        ],
         MenuItem(
           key: todayKey,
           label: 'Show Today ($todayCount)',
@@ -131,6 +136,7 @@ class TrayService with TrayListener {
         quit: () => onQuit?.call(),
         todayCount: _todayCount,
         inboxCount: _inboxCount,
+        includeQuickAdd: !isMacOSApp,
       );
 
   Future<void> _applyMenu() => _tray.setContextMenu(_currentMenu());

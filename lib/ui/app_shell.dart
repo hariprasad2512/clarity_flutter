@@ -35,8 +35,11 @@ class AppShell extends ConsumerWidget {
         // Desktop summons the floating Spotlight-style panel; mobile/web
         // open the bottom-sheet composer (Google-Tasks style). When the
         // panel can't be created, fall back to the composer in-window.
+        // v1.2.2: panel retired on macOS — composer directly.
         void quickAdd() {
-          if (isDesktopApp) {
+          if (isMacOSApp) {
+            showTaskComposer(context);
+          } else if (isDesktopApp) {
             () async {
               final ok = await ref.read(quickAddHostProvider).summon();
               if (!ok && context.mounted) showTaskComposer(context);
@@ -123,7 +126,8 @@ class _NarrowLayout extends StatelessWidget {
         foregroundColor: Colors.white,
         tooltip: 'New task',
         // Desktop keeps the bolt (Quick Add); mobile gets the + composer.
-        child: Icon(isDesktopApp ? Icons.bolt : Icons.add),
+        // v1.2.2: macOS retired Quick Add — composer everywhere there.
+        child: Icon(isDesktopApp && !isMacOSApp ? Icons.bolt : Icons.add),
       ),
     );
   }

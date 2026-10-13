@@ -5,6 +5,8 @@ import '../core/app_store.dart';
 import '../core/date_parser.dart';
 import '../core/task_model.dart';
 import '../desktop/desktop.dart';
+import 'delete_confirm.dart';
+import 'complete_animation.dart';
 import 'link_text.dart';
 import 'schedule_sheet.dart';
 import 'task_detail_sheet.dart';
@@ -274,11 +276,64 @@ class _TaskRow extends ConsumerStatefulWidget {
   ConsumerState<_TaskRow> createState() => _TaskRowState();
 }
 
-class _TaskRowState extends ConsumerState<_TaskRow> {
+class _TaskRowState extends ConsumerState<_TaskRow>
+    with TickerProviderStateMixin {
   /// Last link-tap timestamp. Tapping a URL also reaches the tile's tap
   /// handler (gesture arena), so the sheet open is deferred past the
   /// link callback — order-independent suppression.
   DateTime? _linkTap;
+
+  /// v1.2.2: completing plays the strike-through animation in place
+  /// before the toggle lands (un-completing stays instant).
+  late final AnimationController _completeCtrl;
+  bool _completing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _completeCtrl = AnimationController(
+      vsync: this,
+      duration: completeAnimationDuration,
+    );
+  }
+
+  @override
+  void didUpdateWidget(_TaskRow old) {
+    super.didUpdateWidget(old);
+    // Toggle landed (row moved to Completed today / Done): reset so a
+    // re-tap starts clean.
+    if (old.task.isCompleted != widget.task.isCompleted) {
+      _completing = false;
+      _completeCtrl.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _completeCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Circle tap: un-complete instantly; complete with the 800ms strike
+  /// animation (skipped under reduced motion). Re-taps mid-animation
+  /// are ignored.
+  Future<void> _onToggle() async {
+    if (_completing) return;
+    if (widget.task.isCompleted ||
+        MediaQuery.of(context).disableAnimations) {
+      ref.read(taskListProvider.notifier).toggle(widget.task);
+      return;
+    }
+    setState(() => _completing = true);
+    try {
+      await _completeCtrl.forward();
+    } catch (_) {
+      // Disposed mid-flight (row swiped away) — nothing lands.
+      return;
+    }
+    if (!mounted) return;
+    ref.read(taskListProvider.notifier).toggle(widget.task);
+  }
 
   Color _dueColor(BuildContext context, DateTime due) {
     if (widget.task.isCompleted) return Colors.grey;
@@ -293,7 +348,7 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
   void _onTileTap() {
     // Defer past any link-tap callback so opening a URL never also
     // opens the edit sheet.
-    Future.delayed(const Duration(milliseconds: 200), () {
+    Future.delayed(const Duration(milliseconds: 200), () async {
       if (!mounted) return;
       final tapped = _linkTap;
       if (tapped != null &&
@@ -301,37 +356,18 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
               const Duration(seconds: 1)) {
         return;
       }
-      showTaskDetailSheet(context, widget.task);
+      // Messenger captured up front: deleting from the sheet unmounts
+      // this row, but the page-level messenger survives for the Undo bar.
+      final messenger = ScaffoldMessenger.of(context);
+      final snapshot = await showTaskDetailSheet(context, widget.task);
+      if (snapshot != null) _showDeletedSnackBar(messenger, ref, snapshot);
     });
   }
 
   /// Swipe-to-delete guard: "Are you sure?" on every platform. Returns
   /// true only for an explicit Delete tap; dismiss/Cancel keeps the row.
-  Future<bool> _confirmDelete(BuildContext context, TodoTask task) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete this task?'),
-        content: Text(
-          'Are you sure you want to delete "${task.title}"?',
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    return confirmed ?? false;
-  }
+  Future<bool> _confirmDelete(BuildContext context, TodoTask task) =>
+      showDeleteConfirm(context, task.title);
 
   /// Deletes then offers Undo for a few seconds. The stashed [TodoTask]
   /// keeps its id so Undo converges cleanly with sync (outbox withdrawn).
@@ -347,20 +383,7 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
     );
     await ref.read(taskListProvider.notifier).deleteByIds([task.id]);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('Task deleted'),
-          duration: const Duration(seconds: 5),
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () =>
-                ref.read(taskListProvider.notifier).restoreTask(snapshot),
-          ),
-        ),
-      );
+    _showDeletedSnackBar(ScaffoldMessenger.of(context), ref, snapshot);
   }
 
   @override
@@ -396,9 +419,7 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
                   tooltip: task.isCompleted
                       ? 'Mark not done'
                       : 'Mark done',
-                  onPressed: () => ref
-                      .read(taskListProvider.notifier)
-                      .toggle(task),
+                  onPressed: _completing ? null : _onToggle,
                   icon: Icon(
                     task.isCompleted
                         ? Icons.check_circle
@@ -415,18 +436,41 @@ class _TaskRowState extends ConsumerState<_TaskRow> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    LinkText(
-                      task.title,
-                      onLinkTap: () =>
-                          _linkTap = DateTime.now(),
-                      style: TextStyle(
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : null,
-                        color: task.isCompleted
-                            ? Colors.grey
-                            : null,
-                        fontSize: roomy ? 17 : 15,
+                    AnimatedBuilder(
+                      animation: _completeCtrl,
+                      builder: (context, child) => Opacity(
+                        opacity: _completing
+                            ? 1.0 - 0.4 * _completeCtrl.value
+                            : 1.0,
+                        child: Stack(
+                          children: [
+                            child!,
+                            if (_completing)
+                              Positioned.fill(
+                                child: CustomPaint(
+                                  painter: StrikePainter(
+                                    progress: _completeCtrl.value,
+                                    color: completeStrikeColor(context),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      child: LinkText(
+                        task.title,
+                        onLinkTap: () =>
+                            _linkTap = DateTime.now(),
+                        style: TextStyle(
+                          decoration: task.isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
+                          // Same grey as the completion animation.
+                          color: task.isCompleted
+                              ? completeStrikeColor(context)
+                              : null,
+                          fontSize: roomy ? 17 : 15,
+                        ),
                       ),
                     ),
                     if (task.dueDate != null) ...[
@@ -514,4 +558,28 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shared "Task deleted" + Undo bar for every delete path (swipe and the
+/// edit sheet). The sheet pops before the bar shows, so callers pass the
+/// page-level [messenger] captured before deleting.
+void _showDeletedSnackBar(
+  ScaffoldMessengerState messenger,
+  WidgetRef ref,
+  TodoTask snapshot,
+) {
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: const Text('Task deleted'),
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () =>
+              ref.read(taskListProvider.notifier).restoreTask(snapshot),
+        ),
+      ),
+    );
 }
