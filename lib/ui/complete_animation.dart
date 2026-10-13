@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// v1.2.2 completion animation: instead of the row popping off
 /// instantly, a strike line draws across the title while the row fades
 /// slightly, then the toggle lands and the row moves to Completed today.
-const completeAnimationDuration = Duration(milliseconds: 400);
+const completeAnimationDuration = Duration(milliseconds: 800);
 
 /// Draws a horizontal strike line across [progress] (0→1) of the width,
 /// vertically centered — the animated counterpart of

@@ -314,7 +314,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     super.dispose();
   }
 
-  /// Circle tap: un-complete instantly; complete with the 400ms strike
+  /// Circle tap: un-complete instantly; complete with the 800ms strike
   /// animation (skipped under reduced motion). Re-taps mid-animation
   /// are ignored.
   Future<void> _onToggle() async {
